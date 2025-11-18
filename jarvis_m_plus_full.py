@@ -1,60 +1,55 @@
 
-# ============================================================
-# JARVIS-M++ FINAL: Cross-Session + Cross-User Summarizer
-# Robust loaders, defenses, FAISS memory, Streamlit GUI
-# ============================================================
-
-import os
-import re
-import json
-import math
-import faiss
-import numpy as np
-import streamlit as st
+# Fully patched Jarvis-M++ with evaluation (ROUGE + BERTScore + retrieval + stats)
+import os, re, json, faiss, time
 from pathlib import Path
 from collections import defaultdict
+import numpy as np
+import streamlit as st
 
-# transformers and sentence-transformers
+# transformers / sentence-transformers / datasets / sklearn
 from transformers import pipeline
 from sentence_transformers import SentenceTransformer
 from datasets import load_dataset
 from sklearn.cluster import DBSCAN
 
+# evaluation imports
+from rouge_score import rouge_scorer
+
+# BERTScore (optional)
+try:
+    from bert_score import score as bert_score
+    BERTSCORE_AVAILABLE = True
+except Exception:
+    BERTSCORE_AVAILABLE = False
+
+# Light-weight BERTScore model
+BERTSCORE_MODEL = "microsoft/deberta-base-mnli"   # good balance
+# For slow machines use tiny model:     "distilroberta-base"
+
+
 # -------------------------
-# Configuration / Globals
+# Config
 # -------------------------
 SUMMARIZER_MODEL = "facebook/bart-large-cnn"
 EMBEDDER_MODEL = "all-MiniLM-L6-v2"
-# small classifier attempt (optional). If it fails to load, fallback to regex.
-TOXIC_CLASS_MODEL = "martin-ha/toxic-comment-model"  # small; replace if you prefer
+TOXIC_CLASS_MODEL = "martin-ha/toxic-comment-model"  # light-weight fallback
+# BERTScore model choice (smaller to reduce GPU/memory pressure)
+BERTSCORE_MODEL = "roberta-base"
 
-# initialize basic models (some may download if first run)
-st.set_page_config(page_title="Jarvis-M++ Final", layout="wide")
+st.set_page_config(page_title="Jarvis-M++ Eval", layout="wide")
 
-# We delay heavy initializations to when needed to keep Streamlit responsive
+# -------------------------
+# Lazy init models (cached)
+# -------------------------
 @st.cache_resource(show_spinner=False)
 def init_models():
     models = {}
-    # summarizer pipeline
-    try:
-        models["summarizer"] = pipeline("summarization", model=SUMMARIZER_MODEL)
-    except Exception as e:
-        st.error(f"Failed to load summarizer model: {e}")
-        raise
-
-    # embedder
-    try:
-        models["embedder"] = SentenceTransformer(EMBEDDER_MODEL)
-    except Exception as e:
-        st.error(f"Failed to load embedder model: {e}")
-        raise
-
-    # toxicity classifier (try small HF model; if fails, None -> fallback to regex)
+    models["summarizer"] = pipeline("summarization", model=SUMMARIZER_MODEL)
+    models["embedder"] = SentenceTransformer(EMBEDDER_MODEL)
     try:
         models["tox_clf"] = pipeline("text-classification", model=TOXIC_CLASS_MODEL, top_k=None)
     except Exception:
-        models["tox_clf"] = None  # fallback to rule-based sanitizer
-
+        models["tox_clf"] = None
     return models
 
 models = init_models()
@@ -63,184 +58,135 @@ embedder = models["embedder"]
 tox_clf = models["tox_clf"]
 
 # -------------------------
-# Utilities
+# Sanitizer & Toxicity (lenient)
 # -------------------------
-def safe_print(msg):
-    # helper to print to console for debugging when running locally
-    try:
-        print(msg)
-    except Exception:
-        pass
-
-# -------------------------
-# Toxicity / sanitizer
-# -------------------------
-# fallback blacklist words (lowercase)
-BASIC_BLACKLIST = [
-    "kill", "terror", "bomb", "attack", "drugs", "sex", "porn", "racist", "idiot", "nigga", "nigger"
-]
-# keep blacklist trimmed for demo; tune as needed
-
-def is_toxic_ml(text, threshold=0.6):
-    """Use small HF classifier if available; accumulate toxic-like scores."""
-    if tox_clf is None:
-        return False
-    try:
-        preds = tox_clf(text[:512])
-        # preds is list of dicts (if top_k=None) or list of label dicts
-        # Different models have different labels; check for commonly bad labels
-        toxic_score = 0.0
-        for p in preds:
-            label = p.get("label", "").lower()
-            score = float(p.get("score", 0.0))
-            if any(x in label for x in ["toxic", "offensive", "severe_toxic", "insult", "threat", "hate"]):
-                toxic_score += score
-        return toxic_score >= threshold
-    except Exception as e:
-        safe_print("Toxic ML check failed: " + str(e))
-        return False
-
-def is_toxic_basic(text, threshold=0.0):
-    """Simple rule-based checker (case-insensitive substrings)."""
-    t = text.lower()
-    for bad in BASIC_BLACKLIST:
-        if bad in t:
-            return True
-    return False
-
-def is_toxic(text):
-    """Unified toxicity predicate: try ML classifier first, fallback to basic rules.
-       Intentionally lenient to avoid removing benign messages in demo."""
-    # fast checks
-    if not text or len(text.strip()) < 3:
-        return False
-    # try ML classifier
-    if tox_clf is not None:
-        try:
-            return is_toxic_ml(text, threshold=0.7)
-        except Exception:
-            return is_toxic_basic(text)
-    else:
-        return is_toxic_basic(text)
+BASIC_BLACKLIST = ["nigger", "nigga", "bomb", "terror", "kill", "attack", "drugs", "heroin"]
 
 def clean_message(msg):
     if msg is None:
         return None
-
-    # remove non-printable / weird unicode
-    msg = msg.encode("utf-8", "ignore").decode("utf-8", "ignore")
-
-    # remove empty or placeholder messages
-    if len(msg.strip()) < 3:
+    try:
+        msg = msg.encode("utf-8", "ignore").decode("utf-8", "ignore")
+    except Exception:
         return None
-
-    # WhatsApp continuation lines or timestamps with no actual message
-    ts_patterns = [
-        r"^\d+\/\d+\/\d+.*-.*$",
-        r"^\[?\d{1,2}\/\d{1,2}\/\d{2,4},"
-    ]
-    for pat in ts_patterns:
-        if re.match(pat, msg) and ":" not in msg[15:]:
+    msg = msg.strip()
+    if len(msg) < 3:
+        return None
+    # metadata-only lines
+    meta_re = r"^\[?\d{1,2}\/\d{1,2}\/\d{2,4}.*-\s*[^:]+:\s*$"
+    if re.match(meta_re, msg):
+        return None
+    # mostly punctuation
+    if len(re.sub(r"[A-Za-z0-9]", "", msg)) > 0.8 * len(msg):
+        return None
+    low = msg.lower()
+    for b in BASIC_BLACKLIST:
+        if b in low:
             return None
+    return msg
 
-    return msg.strip()
+def is_toxic(text, threshold=0.85):
+    if not text:
+        return False
+    if tox_clf:
+        try:
+            preds = tox_clf(text[:512])
+            toxic_score = 0.0
+            for p in preds:
+                lab = p.get("label", "").lower()
+                sc = float(p.get("score", 0.0))
+                if any(k in lab for k in ["toxic", "insult", "hate", "offensive", "severe"]):
+                    toxic_score += sc
+            return toxic_score > threshold
+        except Exception:
+            pass
+    # fallback
+    low = text.lower()
+    return any(b in low for b in BASIC_BLACKLIST)
 
 # -------------------------
-# Loaders
+# WhatsApp parser (robust)
 # -------------------------
-whatsapp_line_re = re.compile(r"^\[?\d{1,2}\/\d{1,2}\/\d{2,4},?\s*\d{1,2}:\d{2}(?:[:APMapm\s]+)*\]?\s*-\s*(.*?):\s*(.*)$")
-# common export formats vary; keep flexible
+whatsapp_re = re.compile(r"^\[?\d{1,2}\/\d{1,2}\/\d{2,4}.*?-\s*(.*?):\s*(.*)$")
 
 def parse_whatsapp_file(path):
-    """Parse a WhatsApp-style .txt export into per-user messages (list of strings)."""
-    user_messages = defaultdict(list)
-    path = Path(path)
+    user_msgs = defaultdict(list)
+    last_user = None
     with open(path, "r", encoding="utf-8", errors="ignore") as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
-            m = whatsapp_line_re.match(line)
+            m = whatsapp_re.match(line)
             if m:
                 user = m.group(1).strip()
                 msg = m.group(2).strip()
-                msg = clean_message(msg)
-                if msg:
-                    user_messages[user].append(msg)
-
+                cleaned = clean_message(msg)
+                if cleaned:
+                    user_msgs[user].append(cleaned)
+                    last_user = user
             else:
-                # continuation lines (append to last message) - optional handling
-                # If line doesn't match pattern, append to last user's last message if exists
-                if user_messages:
-                    last_user = list(user_messages.keys())[-1]
-                    if user_messages[last_user]:
-                        user_messages[last_user][-1] += " " + line
-    return dict(user_messages)
+                # continuation
+                if last_user and user_msgs[last_user]:
+                    cont = clean_message(line)
+                    if cont:
+                        user_msgs[last_user][-1] += " " + cont
+    return dict(user_msgs)
 
 def load_whatsapp(path_in):
-    """Load a folder of .txt WhatsApp exports or a single .txt file."""
     p = Path(path_in)
+    if not p.exists():
+        raise ValueError(f"Invalid WhatsApp path: {path_in}")
     if p.is_file():
         return parse_whatsapp_file(p)
     elif p.is_dir():
         aggregated = {}
         for f in p.iterdir():
             if f.suffix.lower() == ".txt":
-                user_base = f.stem
                 parsed = parse_whatsapp_file(f)
-                # If parsed contains multiple users (group export), include them under file stem prefix
-                if len(parsed) == 1:
-                    k = list(parsed.keys())[0]
-                    aggregated[f"{user_base}__{k}"] = parsed[k]
-                else:
-                    for k, v in parsed.items():
-                        aggregated[f"{user_base}__{k}"] = v
+                # if group chat contains many users, prefix with filename
+                for u, msgs in parsed.items():
+                    key = f"{f.stem}__{u}"
+                    aggregated[key] = msgs
         return aggregated
     else:
-        raise ValueError("Invalid WhatsApp path: " + str(path_in))
+        raise ValueError(f"Invalid WhatsApp path: {path_in}")
 
+# -------------------------
+# DialogSum loader (returns dataset too)
+# -------------------------
 def load_dialogsum_samples(n=3):
-    """Load a few sample dialogues from DialogSum, split into turns."""
     dataset = load_dataset("knkarthick/dialogsum")
     samples = {}
     total = len(dataset["train"])
     n = min(n, total)
     for i in range(n):
-        d = dataset["train"][i]["dialogue"]
-        # some dialogues are one string with '\n' separators, some not
-        # split by newline then by speaker-colon if present
+        dialogue = dataset["train"][i]["dialogue"]
         turns = []
-        for line in d.split("\n"):
+        for line in dialogue.split("\n"):
             line = line.strip()
             if not line:
                 continue
-            # if "Person: utterance" present split, else use whole line
+            # remove speaker token if present
             if ":" in line:
                 parts = line.split(":", 1)
                 turns.append(parts[1].strip())
             else:
                 turns.append(line)
         samples[f"dialogsum_{i}"] = turns
-    return samples
+    return samples, dataset
 
 # -------------------------
-# Summarization (safe chunking)
+# Summarization (adaptive, safe chunking)
 # -------------------------
-MAX_INPUT_TOKENS = 1000  # heuristic; BART handles ~1024 tokens; huggingface pipeline handles truncation but we chunk for safety
-
 def chunk_text(text, max_chars=1500):
-    """Naive chunker by characters that avoids cutting sentences badly."""
     text = text.strip()
     if len(text) <= max_chars:
         return [text]
     chunks = []
     start = 0
     while start < len(text):
-        end = start + max_chars
-        if end >= len(text):
-            chunks.append(text[start:].strip())
-            break
-        # try to break at last period or newline before end
+        end = min(start + max_chars, len(text))
         slice_ = text[start:end]
         sep = max(slice_.rfind("."), slice_.rfind("\n"), slice_.rfind("?"), slice_.rfind("!"))
         if sep <= 0:
@@ -251,82 +197,72 @@ def chunk_text(text, max_chars=1500):
         start = sep
     return [c for c in chunks if c]
 
-def summarize_text_safe(text, max_len=120, min_len=25):
-    """Summarize by chunking and combining summaries if needed."""
-    chunks = chunk_text(text, max_chars=1500)
-    if not chunks:
-        return ""
-    summaries = []
-    for ch in chunks:
-        try:
-            out = summarizer(ch, max_length=max_len, min_length=max(10, min_len), do_sample=False)
-            if isinstance(out, list):
-                summaries.append(out[0]['summary_text'])
-            else:
-                # older pipeline formats
-                summaries.append(out['summary_text'])
-        except Exception as e:
-            safe_print("Summarizer chunk error: " + str(e))
-            continue
-    # if multiple chunk summaries, combine and summarize once more if long
-    combined = " ".join(summaries)
-    if len(combined.split()) > max_len * 2:
-        try:
-            out = summarizer(combined, max_length=max_len, min_length=min_len, do_sample=False)
-            return out[0]['summary_text']
-        except Exception:
-            return combined
-    return combined
+def summarize_text_adaptive(text):
+    text = clean_message(text)
+    if not text:
+        return None
+    words = text.split()
+    wc = len(words)
+    # adapt lengths
+    max_len = max(5, int(wc * 0.6))
+    min_len = max(3, int(wc * 0.25))
+    try:
+        if len(text) < 1500:
+            out = summarizer(text, max_length=max_len, min_length=min_len, do_sample=False)
+            return out[0]["summary_text"]
+        else:
+            chunks = chunk_text(text, max_chars=1500)
+            parts = []
+            for ch in chunks:
+                try:
+                    out = summarizer(ch, max_length=max_len, min_length=min_len, do_sample=False)
+                    parts.append(out[0]["summary_text"])
+                except Exception:
+                    continue
+            joined = " ".join(parts)
+            # final compress
+            out = summarizer(joined, max_length=max_len, min_length=min_len, do_sample=False)
+            return out[0]["summary_text"]
+    except Exception:
+        return text
 
 # -------------------------
-# Summarize sessions for each user (with debug)
+# Summarize sessions
 # -------------------------
 def summarize_sessions(user_chats, debug=False):
     user_summaries = {}
     for user, msgs in user_chats.items():
-        summaries = []
+        sums = []
         for m in msgs:
-            m = clean_message(m)
-            if not m:
-                if debug: safe_print("[SKIP-cleaned] empty/invalid")
+            mclean = clean_message(m)
+            if not mclean:
+                if debug: st.write(f"[SKIP clean] {user}: {m[:60]}")
                 continue
-
-            if not m or len(m.strip()) < 3:
-                if debug: safe_print(f"[SKIP-short] {user}: {m[:40]}")
+            if is_toxic(mclean):
+                if debug: st.write(f"[SKIP toxic] {user}: {mclean[:60]}")
                 continue
-            # toxicity check (lenient)
-            if is_toxic(m):
-                if debug: safe_print(f"[SKIP-toxic] {user}: {m[:40]}")
-                continue
-            # summarize
-            try:
-                s = summarize_text_safe(m)
-                if s and len(s.strip()) > 3:
-                    summaries.append(s)
-                    if debug: safe_print(f"[OK] Summarized for {user}: {s[:80]}")
-                else:
-                    if debug: safe_print(f"[SKIP-emptySummary] {user}")
-            except Exception as e:
-                if debug: safe_print(f"[ERROR-sum] {user}: {e}")
-        user_summaries[user] = summaries
+            s = summarize_text_adaptive(mclean)
+            if s and len(s.strip())>0:
+                sums.append(s)
+                if debug: st.write(f"[OK sum] {user}: {s[:100]}")
+        user_summaries[user] = sums
     return user_summaries
 
 # -------------------------
-# Outlier removal (DBSCAN)
+# Outlier removal
 # -------------------------
-def remove_outliers(summaries, eps=0.35, min_samples=2):
+def remove_outliers(summaries, eps=0.37):
     if not summaries:
         return []
     if len(summaries) < 3:
         return summaries
     try:
         embs = embedder.encode(summaries, convert_to_numpy=True, normalize_embeddings=True)
-        cl = DBSCAN(metric='cosine', eps=eps, min_samples=min_samples).fit(embs)
+        cl = DBSCAN(metric="cosine", eps=eps, min_samples=2).fit(embs)
         labels = cl.labels_
-        filtered = [s for s, l in zip(summaries, labels) if l != -1]
+        filtered = [s for s,l in zip(summaries, labels) if l != -1]
         return filtered if filtered else summaries
-    except Exception as e:
-        safe_print("Outlier detection failed: " + str(e))
+    except Exception:
         return summaries
 
 # -------------------------
@@ -335,25 +271,16 @@ def remove_outliers(summaries, eps=0.35, min_samples=2):
 def build_memory(user_summaries):
     all_summaries = []
     meta = []
-    # reputation default
-    reputation = defaultdict(lambda: 1.0)
-
     for user, lst in user_summaries.items():
-        if not lst:
-            continue
         cleaned = remove_outliers(lst)
         for s in cleaned:
-            if s and s.strip():
-                all_summaries.append(s)
-                meta.append({"user": user, "rep": float(reputation[user])})
-                all_summaries = [clean_message(s) for s in all_summaries if clean_message(s)]
-
-
-    if len(all_summaries) == 0:
-        raise ValueError("No summaries to index. Check if messages were parsed correctly or filters too strict.")
-
+            s2 = clean_message(s)
+            if s2:
+                all_summaries.append(s2)
+                meta.append({"user": user, "rep": 1.0})
+    if not all_summaries:
+        raise ValueError("No valid summaries to index.")
     embs = embedder.encode(all_summaries, convert_to_numpy=True)
-    # ensure 2D
     if embs.ndim == 1:
         embs = embs.reshape(1, -1)
     dim = embs.shape[1]
@@ -362,121 +289,234 @@ def build_memory(user_summaries):
     return index, all_summaries, meta
 
 # -------------------------
-# Cross-user retrieval with re-ranking
+# Cross-user retrieval
 # -------------------------
 def cross_user_summary(index, all_summaries, meta, query, k=5):
-    if index.ntotal == 0:
-        return "No memory built.", []
-    q_emb = embedder.encode([query], convert_to_numpy=True)
-    # request larger candidate set and re-rank with rep*sim
+    q = clean_message(query)
+    if not q:
+        return "Invalid query", []
+    q_emb = embedder.encode([q], convert_to_numpy=True)
     candidate_k = min(max(10, k*3), index.ntotal)
     D, I = index.search(q_emb, candidate_k)
     scored = []
     for dist, idx in zip(D[0], I[0]):
-        sim = 1.0 / (1.0 + float(dist))
-        weight = float(meta[idx].get("rep", 1.0))
-        score = sim * weight
-        scored.append((score, idx))
+        sim = 1.0/(1.0 + float(dist))
+        w = float(meta[idx].get("rep", 1.0))
+        scored.append((sim * w, idx))
     scored = sorted(scored, reverse=True)[:k]
     retrieved = [all_summaries[i] for _, i in scored]
-    details = [{"user": meta[i]["user"], "summary": all_summaries[i], "score": float(sc)} for sc, i in scored]
-    # produce meta summary
-    combined = " ".join(retrieved)
-    meta_summary = summarize_text_safe(combined, max_len=140, min_len=30)
-    return meta_summary, details
+    details = [{"user": meta[i]["user"], "summary": all_summaries[i], "score": float(sc)} for sc,i in scored]
+    joined = " ".join(retrieved)
+    final = summarize_text_adaptive(joined) if joined else "No retrieved content"
+    return final, details
 
 # -------------------------
-# Streamlit GUI
+# Evaluation utilities
 # -------------------------
-st.title("🧠 Jarvis-M++ Final — Demo (DialogSum + WhatsApp)")
+def compute_rouge(dialog_samples, dialog_dataset):
+    scorer = rouge_scorer.RougeScorer(["rouge1","rouge2","rougeL"], use_stemmer=True)
+    r1s, r2s, rls = [], [], []
+    for key, turns in dialog_samples.items():
+        idx = int(key.split("_")[1])
+        reference = dialog_dataset["train"][idx]["summary"]
+        system = summarize_text_adaptive(" ".join(turns)) or ""
+        sc = scorer.score(reference, system)
+        r1s.append(sc["rouge1"].fmeasure)
+        r2s.append(sc["rouge2"].fmeasure)
+        rls.append(sc["rougeL"].fmeasure)
+    if not r1s:
+        return None
+    return {"ROUGE-1": float(np.mean(r1s)), "ROUGE-2": float(np.mean(r2s)), "ROUGE-L": float(np.mean(rls))}
 
-st.sidebar.header("Load Data / Build Memory")
-mode = st.sidebar.radio("Data Mode", ["DialogSum samples", "WhatsApp export (folder/file)"])
-debug_mode = st.sidebar.checkbox("Debug logging (console)", value=False)
+def compute_bertscore(references, predictions, model_type=BERTSCORE_MODEL):
+    if not BERTSCORE_AVAILABLE:
+        return None
+    try:
+        P, R, F1 = bert_score(
+            predictions, 
+            references, 
+            model_type=model_type,
+            rescale_with_baseline=True
+        )
+        return {
+            "Precision": float(P.mean()),
+            "Recall": float(R.mean()),
+            "F1": float(F1.mean())
+        }
+    except Exception:
+        return None
 
-if mode == "DialogSum samples":
-    n_samples = st.sidebar.slider("Number of DialogSum samples to load", 1, 10, 3)
-    if st.sidebar.button("Load DialogSum & Build Memory"):
-        with st.spinner("Loading DialogSum samples and building memory..."):
-            user_chats = load_dialogsum_samples(n=n_samples)
-            st.session_state["user_chats"] = user_chats
-            st.session_state["user_summaries"] = summarize_sessions(user_chats, debug=debug_mode)
-            try:
-                st.session_state["index"], st.session_state["all_summaries"], st.session_state["meta"] = build_memory(st.session_state["user_summaries"])
-                st.success("Memory built successfully (DialogSum).")
-            except Exception as e:
-                st.error(f"Failed to build memory: {e}")
-                safe_print(str(e))
 
-elif mode == "WhatsApp export (folder/file)":
-    path_input = st.sidebar.text_input("WhatsApp folder or file path", value="data/whatsapp")
-    if st.sidebar.button("Load WhatsApp & Build Memory"):
+def compute_retrieval_accuracy(index, all_summaries, queries):
+    if index.ntotal == 0:
+        return 0.0
+    correct = 0
+    total = len(queries)
+    for q in queries:
+        q_emb = embedder.encode([q], convert_to_numpy=True)
+        D, I = index.search(q_emb, min(5, index.ntotal))
+        # simplistic hit: any retrieved summary contains first query token
+        qtok = q.split()[0].lower() if q.split() else ""
+        if any(qtok in all_summaries[idx].lower() for idx in I[0]):
+            correct += 1
+    return round(correct / max(1, total) * 100, 2)
+
+def compression_stats(original_texts, summaries):
+    orig_lens = [len(t.split()) for t in original_texts]
+    sum_lens = [len(s.split()) for s in summaries]
+    if not orig_lens:
+        return None
+    ratios = [s/o if o>0 else 0 for s,o in zip(sum_lens, orig_lens)]
+    return {"avg_original": float(np.mean(orig_lens)), "avg_summary": float(np.mean(sum_lens)), "avg_compression_ratio": float(np.mean(ratios))}
+
+def toxicity_stats(raw_msgs, cleaned_msgs):
+    before = len(raw_msgs)
+    after = len(cleaned_msgs)
+    removed = before - after
+    pct = round((removed / before * 100), 2) if before>0 else 0.0
+    return {"total": before, "kept": after, "removed": removed, "removed_pct": pct}
+
+def parsing_stats(user_chats):
+    stats = {u: len(ms) for u,ms in user_chats.items()}
+    total = sum(stats.values())
+    return stats, total
+
+# -------------------------
+# Streamlit UI
+# -------------------------
+st.title(" Jarvis-M")
+
+st.sidebar.header("Data source & settings")
+mode = st.sidebar.radio("Mode", ["DialogSum (eval)", "WhatsApp (real data)"])
+debug = st.sidebar.checkbox("Debug prints", value=False)
+
+# DialogSum loading
+if mode == "DialogSum (eval)":
+    n_samples = st.sidebar.slider("DialogSum samples", 1, 10, 3)
+    if st.sidebar.button("Load DialogSum & Build"):
         try:
-            with st.spinner("Parsing WhatsApp files and building memory..."):
-                user_chats = load_whatsapp(path_input)
-                st.session_state["user_chats"] = user_chats
-                st.session_state["user_summaries"] = summarize_sessions(user_chats, debug=debug_mode)
-                st.session_state["index"], st.session_state["all_summaries"], st.session_state["meta"] = build_memory(st.session_state["user_summaries"])
-                st.success("Memory built successfully (WhatsApp).")
+            samples, dataset = load_dialogsum_samples(n_samples)
+            st.session_state["dialogsum_samples"] = samples
+            st.session_state["dialogsum_dataset"] = dataset
+            st.session_state["user_chats"] = samples
+            st.session_state["user_summaries"] = summarize_sessions(samples, debug=debug)
+            st.session_state["index"], st.session_state["all_summaries"], st.session_state["meta"] = build_memory(st.session_state["user_summaries"])
+            st.success("DialogSum loaded & memory built.")
         except Exception as e:
-            st.error(f"Failed to load/build WhatsApp memory: {e}")
-            safe_print(str(e))
+            st.error(f"Failed: {e}")
 
-# Show available users
-st.subheader("Per-user Cross-Session Summary")
+# WhatsApp loading
+else:
+    path = st.sidebar.text_input("WhatsApp path", "data/whatsapp")
+    if st.sidebar.button("Load WhatsApp & Build"):
+        try:
+            chats = load_whatsapp(path)
+            st.session_state["user_chats"] = chats
+            st.session_state["user_summaries"] = summarize_sessions(chats, debug=debug)
+            st.session_state["index"], st.session_state["all_summaries"], st.session_state["meta"] = build_memory(st.session_state["user_summaries"])
+            st.success("WhatsApp loaded & memory built.")
+        except Exception as e:
+            st.error(f"Failed: {e}")
+
+# per-user cross-session summary
+st.subheader("Per-user cross-session summary")
 if "user_summaries" in st.session_state:
     users = list(st.session_state["user_summaries"].keys())
-    sel_user = st.selectbox("Choose user", ["--select--"] + users)
-    if st.button("Show user cross-session summary"):
-        if sel_user == "--select--":
-            st.warning("Select a user first.")
+    sel = st.selectbox("Select user", ["--select--"] + users)
+    if st.button("Show user summary"):
+        if sel == "--select--":
+            st.warning("Choose a user.")
         else:
-            s = st.session_state["user_summaries"].get(sel_user, [])
-            if not s:
-                st.info("No summaries available for this user (maybe filtered).")
-            else:
-                cs = " ".join(s)
-                res = summarize_text_safe(cs, max_len=120, min_len=25)
-                st.write("**Cross-session summary:**")
-                st.success(res)
+            joined = " ".join(st.session_state["user_summaries"].get(sel, []))
+            out = summarize_text_adaptive(joined) if joined else "No content"
+            st.success(out)
 else:
-    st.info("Load DialogSum or WhatsApp and build memory first (left sidebar).")
+    st.info("Load data first.")
 
-# Cross-user query UI
-st.subheader("Cross-user Meta-Summary (Query)")
-query_input = st.text_input("Query (topic to search across memory):", "project progress")
-topk = st.slider("Top-k retrieved contexts", 1, 10, 5)
+# cross-user meta-summary
+st.subheader("Cross-user meta-summary")
+query = st.text_input("Query", "project progress")
+topk = st.slider("Top-k", 1, 10, 5)
 if st.button("Run cross-user meta-summary"):
     if "index" not in st.session_state:
-        st.error("No memory built. Load data first.")
+        st.warning("Build memory first.")
     else:
-        meta_sum, details = cross_user_summary(st.session_state["index"], st.session_state["all_summaries"], st.session_state["meta"], query_input, k=topk)
-        st.markdown("### Retrieved contexts (top-k):")
-        if not details:
-            st.write("No contexts retrieved.")
-        else:
-            for d in details:
-                st.write(f"**{d['user']}** (score {d['score']:.3f})")
-                st.write("> " + d['summary'])
-                st.markdown("---")
-        st.markdown("### Meta-summary:")
+        meta_sum, details = cross_user_summary(st.session_state["index"], st.session_state["all_summaries"], st.session_state["meta"], query, topk)
+        st.markdown("### Retrieved contexts")
+        for d in details:
+            st.write(f"**{d['user']}** (score {d.get('score',0):.3f})")
+            st.write("> " + d["summary"])
+            st.markdown("---")
+        st.markdown("### Meta-summary")
         st.success(meta_sum)
 
-# Optional: show raw parsed chats (for debugging)
-if st.sidebar.checkbox("Show parsed chats and summaries (debug)"):
-    if "user_chats" in st.session_state:
-        st.sidebar.write("Parsed chats (first 5 per user):")
-        for u, msgs in st.session_state["user_chats"].items():
-            st.sidebar.write(u + ":")
-            for m in msgs[:5]:
-                st.sidebar.write(" - " + (m[:140] + ("..." if len(m) > 140 else "")))
-    if "user_summaries" in st.session_state:
-        st.sidebar.write("User summaries (first 3 per user):")
-        for u, sums in st.session_state["user_summaries"].items():
-            st.sidebar.write(u + ":")
-            for s in sums[:3]:
-                st.sidebar.write(" • " + (s[:160] + ("..." if len(s) > 160 else "")))
-
-# Footer
+# evaluation section
 st.markdown("---")
+st.subheader("📊 Evaluation & Metrics")
 
+if st.button("Compute evaluation metrics"):
+    if "user_chats" not in st.session_state:
+        st.warning("Load data first.")
+    else:
+        # DialogSum metrics
+        if mode == "DialogSum (eval)":
+            samples = st.session_state.get("dialogsum_samples")
+            dataset = st.session_state.get("dialogsum_dataset")
+            if samples and dataset:
+                st.write("### ROUGE (DialogSum)")
+                rouge_res = compute_rouge(samples, dataset)
+                st.write(rouge_res if rouge_res else "No ROUGE results.")
+                # BERTScore: compute using gold summaries and system summaries
+                if st.checkbox("Enable BERTScore (slow)", value=False) and BERTSCORE_AVAILABLE:
+                    st.write("### BERTScore (using lightweight DeBERTa-base)")
+                    refs = []
+                    preds = []
+                    for key, turns in samples.items():
+                        idx = int(key.split("_")[1])
+                        refs.append(dataset["train"][idx]["summary"])
+                        preds.append(summarize_text_adaptive(" ".join(turns)) or "")
+                    bert_res = compute_bertscore(refs, preds, model_type=BERTSCORE_MODEL)
+                    st.write(bert_res if bert_res else "BERTScore failed.")
+                else:
+                    st.info("BERTScore disabled (recommended for demo). Check box to run.")
+
+        # WhatsApp metrics / general metrics
+        # parsing stats
+        chats = st.session_state["user_chats"]
+        stats, total = parsing_stats(chats)
+        st.write("### Parsing stats")
+        st.write(f"Total parsed messages: {total}")
+        st.write(stats)
+        # toxicity
+        raw_msgs = []
+        cleaned = []
+        for u, msgs in chats.items():
+            for m in msgs:
+                raw_msgs.append(m)
+                if clean_message(m):
+                    cleaned.append(m)
+        tox = toxicity_stats(raw_msgs, cleaned)
+        st.write("### Toxicity / Filtering stats")
+        st.write(tox)
+        # retrieval accuracy (example queries)
+        if "index" in st.session_state:
+            queries = st.text_input("Example queries (comma separated)", value="project,meeting,plan").split(",")
+            queries = [q.strip() for q in queries if q.strip()]
+            acc = compute_retrieval_accuracy(st.session_state["index"], st.session_state["all_summaries"], queries)
+            st.write("### FAISS retrieval accuracy (hit%)")
+            st.write(f"{acc} %")
+        # compression ratio (per-user)
+        all_originals = []
+        all_summaries = []
+        for u, msgs in chats.items():
+            for m in msgs:
+                all_originals.append(m)
+        for u, sums in st.session_state.get("user_summaries", {}).items():
+            for s in sums:
+                all_summaries.append(s)
+        comp = compression_stats(all_originals, all_summaries) if all_originals and all_summaries else None
+        st.write("### Compression stats")
+        st.write(comp if comp else "Not enough data to compute compression stats.")
+
+st.markdown("---")
+st.write("Notes: First run downloads models. BERTScore uses a transformer model; it may be slow on CPU.")
