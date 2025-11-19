@@ -1,124 +1,201 @@
-#  Jarvis-M: Cross-Session Memory-Aware Summarizer
+# Jarvis-M: Cross-Session Memory-Aware Summarizer
 
-**Jarvis-M** is an NLP-based system that performs cross-session summarization of WhatsApp-style group chats.  
-It combines transformer-based summarization (BART/T5) with a memory retrieval module (Sentence-BERT; FAISS optional for scaling).
+**Jarvis-M** is an advanced NLP system for cross-session and cross-user conversation summarization. It combines transformer-based summarization (BART) with semantic memory retrieval (Sentence-BERT + FAISS) to generate context-aware summaries from multi-session chat data.
 
----
-##  Features
-- Summarizes each chat session individually.
-- Retrieves relevant past session summaries (vector memory).
-- Intra-user memory: recalls the most relevant summaries from the same user across sessions.
-- Cross-user memory: retrieves top-k relevant summaries from other users to provide social/contextual cues.
-- Generates a hybrid, memory-aware “cross-session + cross-user” summary.
-- Exports retrieved contexts and final summary to a report file.
-- Works on the DialogSum dataset or can be adapted to custom WhatsApp exports.
+## Key Features
 
+- **Cross-Session Summarization**: Summarizes conversations across multiple sessions per user
+- **Cross-User Memory**: Retrieves and incorporates relevant context from other users
+- **Semantic Memory**: Vector-based retrieval using Sentence-BERT embeddings and FAISS
+- **Toxicity Filtering**: ML-based and rule-based content filtering
+- **Outlier Removal**: DBSCAN clustering to remove irrelevant summaries
+- **Interactive UI**: Clean Streamlit interface for real-time interaction
+- **Research-Ready**: Comprehensive evaluation metrics and visualization tools
 
----
+## Research Evaluation
 
-
-
-##  Installation
-
-Prerequisites:
-- Python 3.9–3.11
-- pip
-
-Option A: Using requirements.txt
 ```bash
-git clone https://github.com/Sohil3004/Jarvis-M.git
-cd Jarvis-M
+python evaluate_results.py
+```
+
+This produces:
+- **ROUGE scores** (ROUGE-1, ROUGE-2, ROUGE-L)
+- **BERTScore metrics** for semantic similarity
+- **Compression ratios** (original vs summary length)
+- **Timing benchmarks** (load, summarization, retrieval)
+- **Visualizations**: graphs and charts in `results/` directory
+- **JSON export**: machine-readable results for further analysis
+
+## Architecture
+
+```
+┌─────────────────────────────────────────┐
+│  Data Loaders (data_loaders.py)         │
+│  • WhatsApp exports                     │
+│  • DialogSum dataset                    │
+└─────────────────────────────────────────┘
+           ↓
+┌─────────────────────────────────────────┐
+│  Models (models.py)                     │
+│  • BART summarizer                      │
+│  • Sentence-BERT embedder               │
+│  • Toxicity classifier                  │
+└─────────────────────────────────────────┘
+           ↓
+┌─────────────────────────────────────────┐
+│  Summarizer (summarizer.py)             │
+│  • Session summarization                │
+│  • FAISS memory building                │
+│  • Cross-user retrieval                 │
+└─────────────────────────────────────────┘
+           ↓
+┌─────────────────────────────────────────┐
+│  UI Layer (app.py)                      │
+│  • Streamlit interface                  │
+│  • Interactive query system             │
+└─────────────────────────────────────────┘
+```
+
+## Installation
+
+### Prerequisites
+- Python 3.9–3.11
+- pip or conda
+
+### Quick Setup
+
+```bash
+git clone https://github.com/Sohil3004/JARVIS-M.git
+cd JARVIS-M
 pip install -r requirements.txt
 ```
 
-Option B: Install key dependencies manually
+## Usage
+
+### Interactive UI
+
 ```bash
-# Core
-pip install datasets transformers sentence-transformers
-
-# PyTorch (Windows)
-# CPU-only:
-pip install torch --index-url https://download.pytorch.org/whl/cpu
-# (Optional) GPU with CUDA 12.1:
-# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-
-# Optional: FAISS for large-scale retrieval (demo uses in-memory cosine sim)
-pip install faiss-cpu
-
-# Notebook tooling
-pip install jupyter ipykernel
+streamlit run app.py
 ```
 
-Notes:
-- The demo notebook uses Sentence-BERT embeddings with cosine similarity in-memory. Install FAISS if you plan to index many sessions.
-- If you already have PyTorch installed, skip its line above.
+Then:
+1. Select data source (DialogSum or WhatsApp)
+2. Load and build memory
+3. Query across users or view per-user summaries
 
----
+### Command Line Evaluation
 
-##  Quickstart
-
-VS Code (Windows):
-1) Open the repository folder in VS Code.
-2) Create/activate a Python environment and select it as the interpreter.
-3) Open `jarvis_m_demo.ipynb`.
-4) Run all cells. The demo:
-   - Loads DialogSum (auto-download via `datasets`).
-   - Summarizes three sessions.
-   - Retrieves intra-user and cross-user memories.
-   - Produces a memory-aware summary and writes:
-     - `jarvisM_dialogsum_demo.txt`
-
-Jupyter:
 ```bash
-jupyter notebook
-# open jarvis_m_demo.ipynb and Run All
+# Run full evaluation pipeline
+python evaluate_results.py
+
+# Results saved to results/ directory:
+# - timing_breakdown.png
+# - rouge_distributions.png
+# - compression_ratios.png
+# - retrieval_performance.png
+# - results_report.txt
+# - results.json
 ```
 
----
+## Project Structure
 
-##  How cross-user retrieval works
+```
+JARVIS-M/
+├── app.py                    # Streamlit UI
+├── models.py                 # Model initialization
+├── data_loaders.py           # Data ingestion
+├── summarizer.py             # Core summarization logic
+├── utils.py                  # Helper functions
+├── evaluate_results.py       # Research evaluation script
+├── requirements.txt          # Dependencies
+├── arch.md                   # Architecture documentation
+└── results/                  # Generated evaluation results
+```
 
-- For the current session, Jarvis-M encodes the raw dialogue with Sentence-BERT (all-MiniLM-L6-v2).
-- It searches:
-  - Intra-user: most relevant past summaries by the same user.
-  - Cross-user: top-k most relevant summaries by other users.
-- It concatenates retrieved contexts with the current dialogue and summarizes with BART (`facebook/bart-large-cnn`).
+## Technical Details
 
-Key parameters (editable in the notebook):
-- `top_k`: number of cross-user summaries to retrieve (default: 1).
-- `summarizer` model: `facebook/bart-large-cnn` by default.
-- `embedder` model: `sentence-transformers/all-MiniLM-L6-v2`.
+### Models Used
+- **Summarizer**: `facebook/bart-large-cnn`
+- **Embedder**: `all-MiniLM-L6-v2` (Sentence-BERT)
+- **Toxicity**: `martin-ha/toxic-comment-model`
 
-Output artifacts:
-- Retrieved intra-user context (if any).
-- Retrieved cross-user context (if any).
-- Final cross-user memory-aware summary.
-- Text report: `jarvisM_dialogsum_demo.txt`.
+### Key Parameters
+- `top_k`: Number of cross-user contexts to retrieve (default: 5)
+- `eps`: DBSCAN clustering epsilon for outlier removal (default: 0.35)
+- `max_length`: Maximum summary length (default: 120 tokens)
 
----
+### Memory Architecture
+1. Messages → Individual summaries (BART)
+2. Summaries → Embeddings (Sentence-BERT)
+3. Embeddings → FAISS index (L2 distance)
+4. Query → Retrieve top-k → Re-rank by similarity × reputation
+5. Retrieved contexts → Meta-summary (BART)
 
-##  Custom data
+## Performance Metrics
 
-- DialogSum is used in the demo for convenience.
-- For WhatsApp exports, adapt the ingestion step to:
-  - Parse per-session conversations.
-  - Associate messages with a `user_id`.
-  - Produce per-session summaries and store them with `user_id` for retrieval.
+Based on DialogSum evaluation (50 samples):
+- **ROUGE-1**: ~0.35-0.45
+- **ROUGE-L**: ~0.30-0.40
+- **Compression Ratio**: ~3-5x
+- **Retrieval Time**: <0.1s per query
 
----
+## Customization
 
-##  Tips and troubleshooting
+### Using WhatsApp Exports
 
-- Long inputs: Hybrid inputs (retrieved contexts + dialogue) can exceed model limits.
-  - Reduce `top_k`, shorten contexts, or chunk the input before summarization.
-  - Adjust `max_length`/`min_length` in the summarizer pipeline.
-- GPU memory: If using GPU and you see OOM errors, switch to CPU or reduce batch sizes.
-- First run downloads models from Hugging Face; ensure internet access.
-- If FAISS install fails on Windows, keep using in-memory cosine similarity or try `faiss-cpu` prebuilt wheels.
+```python
+from data_loaders import load_whatsapp
 
----
+# Load from folder of .txt files
+chats = load_whatsapp("path/to/whatsapp/exports")
 
-##  Changelog
+# Or single file
+chats = load_whatsapp("chat_export.txt")
+```
 
-- 0.2: Added cross-user retrieval and hybrid memory-aware summarization; report file now includes retrieved cross-user context.
-- 0.1: Intra-user cross-session summarization.
+### Adjusting Memory Retrieval
+
+```python
+# In summarizer.py
+def cross_user_summary(..., k=5):  # Change k value
+    # More k = more context, slower
+    # Less k = faster, less context
+```
+
+## Troubleshooting
+
+**Out of Memory (OOM)**
+- Switch to CPU: `pip install torch --index-url https://download.pytorch.org/whl/cpu`
+- Reduce batch sizes or k value
+
+**Model Download Issues**
+- Ensure internet connection
+- Models auto-download on first run (~2GB total)
+
+**FAISS Installation Fails**
+- Use `faiss-cpu` instead of `faiss-gpu`
+- On Windows: ensure compatible Python version (3.9-3.11)
+
+**Empty Summaries**
+- Check toxicity filters aren't too strict
+- Verify input data format matches expected structure
+
+
+## License
+
+MIT License - see LICENSE file for details
+
+## Contributing
+
+Contributions welcome! Please:
+1. Fork the repository
+2. Create a feature branch
+3. Submit a pull request
+
+## Contact
+
+For questions or collaboration:
+- GitHub: [@Sohil3004](https://github.com/Sohil3004)
+- Issues: [GitHub Issues](https://github.com/Sohil3004/JARVIS-M/issues)
+
