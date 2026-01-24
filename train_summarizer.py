@@ -46,27 +46,15 @@ LORA_TARGET_MODULES = ["q_proj", "v_proj", "k_proj", "out_proj"]  # Attention la
 
 def setup_device():
     """Setup and return the appropriate device for training."""
-    use_cuda = False
-    
     if torch.cuda.is_available():
-        # Check if GPU compute capability is supported
+        print(f"✓ Using GPU: {torch.cuda.get_device_name(0)}")
+        print(f"  GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
         cc = torch.cuda.get_device_capability()
-        cc_str = f"sm_{cc[0]}{cc[1]}"
-        
-        # RTX 5060 (sm_120) is not yet fully supported, use CPU for stable training
-        if cc[0] >= 12:
-            print(f"⚠ GPU {torch.cuda.get_device_name(0)} ({cc_str}) is too new for current PyTorch")
-            print("  Using CPU for stable training (slower but reliable)")
-            use_cuda = False
-        else:
-            print(f"✓ Using GPU: {torch.cuda.get_device_name(0)}")
-            print(f"  GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
-            use_cuda = True
+        print(f"  Compute Capability: sm_{cc[0]}{cc[1]}")
+        return True
     else:
         print("⚠ No GPU available, using CPU (training will be slow)")
-        use_cuda = False
-    
-    return use_cuda
+        return False
 
 
 def load_and_prepare_dataset():

@@ -1,4 +1,70 @@
+# Python
 .venv
+venv/
+env/
 __pycache__/
-cache/
 *.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.whl
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Model files and cache
+cache/
+models/jarvis-bart-lora/checkpoint-*/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.h5
+*.pb
+
+# Large dataset files
+*.arrow
+*.parquet
+*.hdf5
+
+# Logs and outputs
+*.log
+logs/
+outputs/
+wandb/
+tensorboard/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Temp files
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
+
+# Large model downloads (>10MB)
+*.dll
+*.pyd
+*.dylib
+
+# Git LFS (if needed)
+# *.safetensors filter=lfs diff=lfs merge=lfs -text
+# *.bin filter=lfs diff=lfs merge=lfs -text
