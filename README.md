@@ -1,6 +1,14 @@
 # Jarvis-M: A Cross-Session and Cross-User Memory-Aware Dialogue Summarization Framework
 
-A dialogue summarization system combining Retrieval-Augmented Generation (RAG) with BART-Large-CNN and dual-memory architecture for cross-session and cross-user context retention. This project addresses critical challenges in abstractive dialogue summarization through structured memory retrieval and collaborative intelligence.
+[![Python](https://img.shields.io/badge/Python-3.8%2B-green)](https://www.python.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-red)](https://pytorch.org/)
+[![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
+
+A dialogue summarization system combining Retrieval-Augmented Generation (RAG) with fine-tuned BART-Large-CNN and dual-memory architecture for cross-session and cross-user context retention. This project addresses critical challenges in abstractive dialogue summarization through LoRA-based parameter-efficient fine-tuning, structured memory retrieval with FAISS, and collaborative intelligence mechanisms.
+
+**Authors**: Sumit Santhosh Nair, Sohil Nadakeri Sudarshan  
+**Institution**: PES University, Bengaluru, India  
+**Department**: Computer Science & Engineering (AI & ML)
 
 ---
 
@@ -107,21 +115,37 @@ python update_inference.py
 
 ---
 
-## File Structure
+## Repository Structure
 
 ```
-├── train_summarizer.py          # Fine-tune BART with LoRA
-├── eval_retrieval.py            # Benchmark retrieval with Recall@K
+JARVIS-M/
+├── train_summarizer.py          # Fine-tune BART with LoRA on DialogSum
+├── eval_retrieval.py            # Benchmark retrieval with Recall@K metrics
 ├── update_inference.py          # Inference with compression control
-├── test_training_quick.py       # Quick validation test (10 samples)
+├── check_gpu.py                 # GPU compatibility checker
 │
 ├── requirements.txt             # Python dependencies
 ├── README.md                    # This file
+├── RETRIEVAL_EVALUATION.md      # Retrieval metrics explanation
 │
 ├── models/
-│   └── jarvis-bart-lora/        # Fine-tuned LoRA adapter
-├── cache/                       # HuggingFace model cache
-└── old/                         # Legacy code (archived)
+│   └── jarvis-bart-lora/        # Fine-tuned LoRA adapters & checkpoints
+│       ├── adapter_model.safetensors
+│       ├── adapter_config.json
+│       ├── checkpoint-1558/     # Mid-training checkpoint
+│       └── checkpoint-2337/     # Final checkpoint (epoch 3)
+│
+├── cache/                       # HuggingFace model cache (DialogSum, BART)
+├── paper/
+│   ├── main.tex                 # IEEE conference paper
+│   └── architecture_JARVIS-M.png
+│
+├── old/                         # Archived legacy code
+│   ├── jarvis_m_plus_full.py
+│   ├── jarvis_m_demo.ipynb
+│   └── jarvisM_dialogsum_demo.txt
+│
+└── .venv/                       # Python virtual environment (not tracked)
 ```
 
 ---
@@ -155,69 +179,91 @@ python update_inference.py
 
 ### Fine-Tuning Performance
 
-| Metric | Baseline (BART-large-CNN) | Fine-tuned (LoRA) |
-|--------|---------------------------|-------------------|
-| ROUGE-1 | 42.3 | **47.8** (+5.5) |
-| ROUGE-2 | 21.1 | **25.6** (+4.5) |
-| ROUGE-L | 35.2 | **40.1** (+4.9) |
+Trained on DialogSum dataset (12,460 training samples, 3 epochs) with LoRA adaptation:
 
-*(Expected results based on DialogSum benchmarks [3])*
+| Metric | Test Set Score |
+|--------|----------------|
+| ROUGE-1 | **36.13** |
+| ROUGE-2 | **14.44** |
+| ROUGE-L | **27.60** |
+| Average | **26.05** |
+
+**Training Details**:
+- Hardware: NVIDIA RTX 5060 Laptop GPU (8.55 GB VRAM)
+- Training time: 2 hours 3 minutes
+- Trainable parameters: 4.7M (1.15% of total)
+- Final training loss: 1.0633
 
 ### Retrieval Performance
 
-| Metric | Dialogue → Summary | Summary → Dialogue |
-|--------|-------------------|-------------------|
-| Recall@1 | 78.4% | 72.1% |
-| Recall@5 | 94.2% | 91.7% |
-| Recall@10 | 97.8% | 96.3% |
-| MRR | 85.6% | - |
+Evaluated on DialogSum test set (1,500 dialogue-summary pairs) using Sentence-BERT (all-MiniLM-L6-v2) with FAISS indexing:
 
-### Compression Analysis
+| Metric | Dialogue → Summary | Summary → Dialogue | Average |
+|--------|-------------------|-------------------|----------|
+| Recall@1 | 29.07% | 27.73% | **28.40%** |
+| Recall@5 | 84.20% | 86.93% | **85.57%** |
+| Recall@10 | 90.07% | 91.07% | **90.57%** |
+| MRR | 52.28% | - | **52.28%** |
 
-| Model | Avg. Compression | Max Length Violation |
-|-------|-----------------|---------------------|
-| **Baseline** | 0.82 (18% reduction) | 34% of outputs |
-| **Improved** | 0.51 (49% reduction) | 2% of outputs |
+**Key Insights**:
+- **Recall@1** (29%): Correct match retrieved at top-1 position
+- **Recall@5** (86%): Correct match found within top-5 results
+- **High Recall@5-10**: System reliably finds relevant context in top results
+- **MRR** (52%): Mean reciprocal rank indicates good ranking quality
+
+These metrics validate the retrieval module on the full test set (1,500 samples), replacing previous unscientific "100% on 3 queries" claims with rigorous benchmarking.
 
 ---
 
 ## References
 
-1. Chen, Y., & Bansal, M. (2018). "Fast Abstractive Summarization with Reinforce-Selected Sentence Rewriting." *ACL 2018*. DOI: [10.18653/v1/P18-1063](https://doi.org/10.18653/v1/P18-1063)
+### Core Technologies
 
-2. Gliwa, B., Mochol, I., Biesek, M., & Wawer, A. (2019). "SAMSum Corpus: A Human-annotated Dialogue Dataset for Abstractive Summarization." *EMNLP 2019*. DOI: [10.18653/v1/D19-5409](https://doi.org/10.18653/v1/D19-5409)
+1. **BART**: Lewis, M., et al. (2020). "BART: Denoising Sequence-to-Sequence Pre-training for Natural Language Generation, Translation, and Comprehension." *ACL 2020*, pp. 7871-7880.
 
-3. Chen, Y., Liu, Y., Chen, L., & Zhang, Y. (2021). "DialogSum: A Real-Life Scenario Dialogue Summarization Dataset." *Findings of ACL-IJCNLP 2021*, pp. 5062-5074. DOI: [10.18653/v1/2021.findings-acl.449](https://doi.org/10.18653/v1/2021.findings-acl.449)
+2. **LoRA**: Hu, E. J., et al. (2022). "LoRA: Low-Rank Adaptation of Large Language Models." *ICLR 2022*. [arXiv:2106.09685](https://arxiv.org/abs/2106.09685)
 
-4. Hu, E. J., Shen, Y., Wallis, P., et al. (2021). "LoRA: Low-Rank Adaptation of Large Language Models." *ICLR 2022*. [arXiv:2106.09685](https://arxiv.org/abs/2106.09685)
+3. **Sentence-BERT**: Reimers, N., & Gurevych, I. (2019). "Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks." *EMNLP-IJCNLP 2019*, pp. 3982-3992.
 
-5. Lewis, P., et al. (2020). "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks." *Advances in Neural Information Processing Systems (NeurIPS)*, vol. 33, pp. 9459-9474.
+4. **FAISS**: Johnson, J., Douze, M., & Jégou, H. (2019). "Billion-scale similarity search with GPUs." *IEEE Transactions on Big Data*, 7(3), 535-547.
 
-6. Reimers, N., & Gurevych, I. (2019). "Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks." *EMNLP-IJCNLP 2019*, pp. 3982-3992. DOI: [10.18653/v1/D19-1410](https://doi.org/10.18653/v1/D19-1410)
+5. **Transformers**: Vaswani, A., et al. (2017). "Attention is All You Need." *NeurIPS 2017*, vol. 30, pp. 5998-6008.
 
-7. Xu, J., Szlam, A., & Weston, J. (2022). "Beyond Goldfish Memory: Long-Term Open-Domain Conversation." *ACL 2022 (Volume 1: Long Papers)*, pp. 5180-5197.
+### Datasets & Evaluation
 
-8. Johnson, J., Douze, M., & Jégou, H. (2019). "Billion-scale similarity search with GPUs." *IEEE Transactions on Big Data*, 7(3), 535-547. DOI: [10.1109/TBDATA.2019.2921572](https://doi.org/10.1109/TBDATA.2019.2921572)
+6. **DialogSum**: Chen, Y., Liu, Y., Chen, L., & Zhang, Y. (2021). "DialogSum: A Real-Life Scenario Dialogue Summarization Dataset." *Findings of ACL-IJCNLP 2021*, pp. 5062-5074.
 
-9. Liu, Y., & Lapata, M. (2019). "Text Summarization with Pretrained Encoders." *EMNLP 2019*. DOI: [10.18653/v1/D19-1387](https://doi.org/10.18653/v1/D19-1387)
+7. **SAMSum**: Gliwa, B., et al. (2019). "SAMSum Corpus: A Human-annotated Dialogue Dataset for Abstractive Summarization." *EMNLP 2019*.
 
-10. Wu, Y., Schuster, M., Chen, Z., et al. (2016). "Google's Neural Machine Translation System: Bridging the Gap between Human and Machine Translation." [arXiv:1609.08144](https://arxiv.org/abs/1609.08144)
+8. **ROUGE**: Lin, C.-Y. (2004). "ROUGE: A Package for Automatic Evaluation of Summaries." *ACL Workshop*, Barcelona, Spain, pp. 74-81.
 
-11. Wegner, D. M. (1987). "Transactive memory: A contemporary analysis of the group mind." In *Theories of Group Behavior*, B. Mullen and G. R. Goethals, Eds. New York: Springer-Verlag, pp. 185-208.
+### Memory Systems & RAG
 
-12. Lewis, M., Liu, Y., Goyal, N., et al. (2020). "BART: Denoising Sequence-to-Sequence Pre-training for Natural Language Generation, Translation, and Comprehension." *ACL 2020*, pp. 7871-7880. DOI: [10.18653/v1/2020.acl-main.703](https://doi.org/10.18653/v1/2020.acl-main.703)
+9. **RAG**: Lewis, P., et al. (2020). "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks." *NeurIPS*, vol. 33, pp. 9459-9474.
 
-13. Rezazadeh, A., Li, Z., Lou, A., Zhao, Y., Wei, W., & Bao, Y. (2025). "Collaborative Memory: A Framework for Asymmetric, Time-Varying Access in Multi-Agent Systems." [arXiv:2505.18279](https://arxiv.org/abs/2505.18279)
+10. **Goldfish Memory**: Xu, J., Szlam, A., & Weston, J. (2022). "Beyond Goldfish Memory: Long-Term Open-Domain Conversation." *ACL 2022*, pp. 5180-5197.
 
-14. Packer, C., et al. (2023). "MemGPT: Towards LLMs as Operating Systems." [arXiv:2310.08560](https://arxiv.org/abs/2310.08560)
+11. **MemGPT**: Packer, C., et al. (2023). "MemGPT: Towards LLMs as Operating Systems." [arXiv:2310.08560](https://arxiv.org/abs/2310.08560)
 
-15. He, J., et al. (2025). "MADial-Bench: Towards Real-world Evaluation of Memory-Augmented Dialogue Generation." *NAACL 2025*.
+12. **MADial**: He, J., et al. (2025). "MADial-Bench: Towards Real-world Evaluation of Memory-Augmented Dialogue Generation." *NAACL 2025*.
 
-16. Zhang, T., Kishore, V., Wu, F., Weinberger, K. Q., & Artzi, Y. (2020). "BERTScore: Evaluating Text Generation with BERT." *ICLR 2020*.
+13. **Collaborative Memory**: Rezazadeh, A., et al. (2025). "Collaborative Memory: A Framework for Asymmetric, Time-Varying Access in Multi-Agent Systems." [arXiv:2505.18279](https://arxiv.org/abs/2505.18279)
 
-17. Ester, M., Kriegel, H.-P., Sander, J., & Xu, X. (1996). "A density-based algorithm for discovering clusters in large spatial databases with noise." *Proc. 2nd Int. Conf. on Knowledge Discovery and Data Mining (KDD-96)*, Portland, OR, USA, pp. 226-231.
+### Additional Methods
 
-18. Liu, Y., et al. (2023). "ToxicChat: Unveiling Hidden Challenges of Toxicity Detection in Real-World User-AI Conversation." *Findings of EMNLP 2023*, pp. 4693-4710.
+14. **PEGASUS**: Zhang, J., et al. (2020). "PEGASUS: Pre-training with Extracted Gap-sentences for Abstractive Summarization." *ICML*, vol. 119, pp. 11328-11339.
+
+15. **Lost in the Middle**: Liu, N. F., et al. (2024). "Lost in the Middle: How Language Models Use Long Contexts." *TACL*, vol. 12, pp. 157-173.
+
+16. **DBSCAN**: Ester, M., et al. (1996). "A density-based algorithm for discovering clusters in large spatial databases with noise." *KDD-96*, pp. 226-231.
+
+17. **ToxicChat**: Liu, Y., et al. (2023). "ToxicChat: Unveiling Hidden Challenges of Toxicity Detection in Real-World User-AI Conversation." *Findings of EMNLP 2023*, pp. 4693-4710.
+
+18. **Transactive Memory**: Wegner, D. M. (1987). "Transactive memory: A contemporary analysis of the group mind." In *Theories of Group Behavior*, Springer-Verlag, pp. 185-208.
+
+19. **PyTorch**: Paszke, A., et al. (2019). "PyTorch: An Imperative Style, High-Performance Deep Learning Library." *NeurIPS*, vol. 32, pp. 8024-8035.
+
+20. **Hugging Face Transformers**: Wolf, T., et al. (2020). "Transformers: State-of-the-Art Natural Language Processing." *EMNLP 2020: System Demonstrations*, pp. 38-45.
 
 ---
 
@@ -226,12 +272,13 @@ python update_inference.py
 If you use this code in your research, please cite:
 
 ```bibtex
-@misc{jarvis-m-2025,
-  author = {Sudarshan, Sohil Nadakeri and Nair, Sumit Santhosh},
+@inproceedings{jarvism2025,
+  author = {Nair, Sumit Santhosh and Sudarshan, Sohil Nadakeri and Gorripati, Ravi},
   title = {Jarvis-M: A Cross-Session and Cross-User Memory-Aware Dialogue Summarization Framework},
-  year = {2025},
-  institution = {PES University, Bengaluru, India},
-  publisher = {GitHub},
+  year = {2026},
+  institution = {PES University},
+  address = {Bengaluru, India},
+  note = {Department of Computer Science \& Engineering (AI \& ML)},
   url = {https://github.com/Sohil3004/JARVIS-M}
 }
 ```
@@ -249,12 +296,15 @@ MIT License - See LICENSE file for details.
 
 ## Acknowledgments
 
-- **DialogSum dataset**: Chen et al. [3]
-- **BART model**: Lewis et al. [12]
-- **RAG framework**: Lewis et al. [5]
-- **LoRA implementation**: Hu et al. [4] via Hugging Face PEFT library
-- **Sentence-BERT embeddings**: Reimers & Gurevych [6] via Sentence-Transformers library
-- **FAISS indexing**: Johnson et al. [8]
-- **Memory-augmented dialogue**: Inspired by long-term conversation [7], collaborative memory [13], and MemGPT [14]
-- **DBSCAN clustering**: Ester et al. [17]
-- **Transactive memory theory**: Wegner [11]
+This work builds upon foundational research in dialogue summarization and retrieval-augmented generation:
+
+- **DialogSum dataset**: Chen et al. (2021) for high-quality dialogue-summary pairs
+- **BART model**: Lewis et al. (2020) for pre-trained sequence-to-sequence architecture  
+- **LoRA**: Hu et al. (2022) for parameter-efficient fine-tuning via Hugging Face PEFT
+- **Sentence-BERT**: Reimers & Gurevych (2019) for semantic embeddings via Sentence-Transformers
+- **FAISS**: Johnson et al. (2019) for efficient vector similarity search
+- **RAG framework**: Lewis et al. (2020) for retrieval-augmented generation paradigm
+- **Memory systems**: Inspired by Goldfish Memory (Xu et al., 2022), MemGPT (Packer et al., 2023), and Collaborative Memory (Rezazadeh et al., 2025)
+- **Transactive memory theory**: Wegner (1987) for multi-agent knowledge sharing concepts
+- **PyTorch & Transformers**: Paszke et al. (2019) and Wolf et al. (2020) for deep learning infrastructure
+
