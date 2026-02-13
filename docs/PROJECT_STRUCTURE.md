@@ -9,17 +9,22 @@ This document provides a detailed overview of the Jarvis-M repository organizati
 ```
 JARVIS-M/
 │
-├── 📄 Core Scripts
+├── � scripts/                      # Core Python scripts
 │   ├── train_summarizer.py          # Fine-tune BART-Large-CNN with LoRA on DialogSum
 │   ├── eval_retrieval.py            # Benchmark retrieval system with Recall@K metrics
 │   ├── update_inference.py          # Inference module with compression controls
+│   ├── ablation_study.py            # Dual-memory ablation experiments
 │   └── check_gpu.py                 # GPU compatibility checker for PyTorch
 │
-├── 📄 Documentation
-│   ├── README.md                    # Main project documentation
+├── 📁 docs/                         # Documentation
+│   ├── ARCHITECTURE.md              # System architecture (Mermaid diagrams)
 │   ├── RETRIEVAL_EVALUATION.md      # Retrieval metrics explanation
-│   ├── PROJECT_STRUCTURE.md         # This file
-│   └── requirements.txt             # Python dependencies
+│   └── PROJECT_STRUCTURE.md         # This file
+│
+├── 📄 Root Files
+│   ├── README.md                    # Main project documentation
+│   ├── requirements.txt             # Python dependencies
+│   └── LICENSE                      # MIT License
 │
 ├── 📁 models/                       # Trained models (git-ignored except configs)
 │   └── jarvis-bart-lora/           # Fine-tuned LoRA adapters
@@ -52,7 +57,9 @@ JARVIS-M/
 
 ### Core Scripts
 
-#### `train_summarizer.py`
+> All scripts live in [`scripts/`](../scripts/).
+
+#### `scripts/train_summarizer.py`
 **Purpose**: Fine-tune BART-Large-CNN on DialogSum using LoRA (Low-Rank Adaptation)
 
 **Key Components**:
@@ -70,7 +77,7 @@ JARVIS-M/
 
 ---
 
-#### `eval_retrieval.py`
+#### `scripts/eval_retrieval.py`
 **Purpose**: Rigorous retrieval evaluation on full DialogSum test set (1,500 samples)
 
 **Key Components**:
@@ -92,7 +99,7 @@ JARVIS-M/
 
 ---
 
-#### `update_inference.py`
+#### `scripts/update_inference.py`
 **Purpose**: Production inference module with compression enforcement
 
 **Key Components**:
@@ -112,12 +119,12 @@ JARVIS-M/
 
 ---
 
-#### `check_gpu.py`
+#### `scripts/check_gpu.py`
 **Purpose**: Utility to check GPU compatibility with PyTorch
 
 **Usage**: 
 ```bash
-python check_gpu.py
+python scripts/check_gpu.py
 ```
 
 **Detects**:
@@ -130,6 +137,8 @@ python check_gpu.py
 
 ### Documentation
 
+> All docs live in [`docs/`](../docs/).
+
 #### `README.md`
 Comprehensive project overview including:
 - Research motivation and methodology
@@ -139,13 +148,13 @@ Comprehensive project overview including:
 - 20 academic references
 - Citation format (BibTeX)
 
-#### `RETRIEVAL_EVALUATION.md`
+#### `docs/RETRIEVAL_EVALUATION.md`
 Explains "failed retrievals" concept:
 - 1,064 "failures" = rank>1 retrievals (not actual failures)
 - 84% Recall@5 is excellent performance
 - Clarifies evaluation methodology
 
-#### `PROJECT_STRUCTURE.md`
+#### `docs/PROJECT_STRUCTURE.md`
 This document - detailed repository organization guide.
 
 #### `requirements.txt`
@@ -218,7 +227,7 @@ tqdm>=4.65.0
 ```
 DialogSum (cache/)
     ↓
-train_summarizer.py
+scripts/train_summarizer.py
     ↓ (LoRA fine-tuning)
 models/jarvis-bart-lora/
     ↓ (adapter weights)
@@ -235,7 +244,7 @@ Sentence-BERT embeddings
     ↓
 FAISS indexing
     ↓
-eval_retrieval.py
+scripts/eval_retrieval.py
     ↓
 Recall@K metrics, MRR
 ```
@@ -244,7 +253,7 @@ Recall@K metrics, MRR
 ```
 Input dialogue (user input)
     ↓
-update_inference.py
+scripts/update_inference.py
     ↓ (LoRA adapter loaded)
 Dynamic length calculation
     ↓ (compression controls)
@@ -310,7 +319,7 @@ pip install -r requirements.txt
 ### Training
 ```bash
 # Fine-tune BART with LoRA (~2 hours on CPU)
-python train_summarizer.py
+python scripts/train_summarizer.py
 
 # Output: models/jarvis-bart-lora/ (~10 MB)
 ```
@@ -318,7 +327,7 @@ python train_summarizer.py
 ### Evaluation
 ```bash
 # Benchmark retrieval (5 minutes)
-python eval_retrieval.py
+python scripts/eval_retrieval.py
 
 # Output: Console metrics (Recall@K, MRR)
 ```
@@ -326,7 +335,7 @@ python eval_retrieval.py
 ### Inference
 ```bash
 # Test compression (instant)
-python update_inference.py
+python scripts/update_inference.py
 
 # Output: Summary + compression stats
 ```
@@ -336,8 +345,8 @@ python update_inference.py
 ## Git Workflow
 
 ### What's Tracked
-- Python scripts (*.py)
-- Documentation (*.md)
+- Python scripts (scripts/*.py)
+- Documentation (docs/*.md, README.md)
 - Configuration (requirements.txt, .gitignore)
 - Old reference code (old/)
 
@@ -356,7 +365,7 @@ python update_inference.py
 git status
 
 # Stage changes
-git add train_summarizer.py README.md
+git add scripts/train_summarizer.py README.md
 
 # Commit
 git commit -m "Update training script with new hyperparameters"

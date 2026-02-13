@@ -1,0 +1,57 @@
+{
+  "timestamp": "2026-02-11T18:56:59",
+  "model": "facebook/bart-large-cnn",
+  "lora_adapter": "./models/jarvis-bart-lora",
+  "generation_kwargs": {
+    "num_beams": 4,
+    "length_penalty": 2.0,
+    "no_repeat_ngram_size": 3,
+    "early_stopping": true,
+    "do_sample": false,
+    "repetition_penalty": 1.2
+  },
+  "reranking": {
+    "alpha": 0.4,
+    "num_candidates": 6
+  },
+  "retrieval": {
+    "top_k_intra": 3,
+    "top_k_cross": 3,
+    "num_synthetic_users": 50,
+    "embedder": "all-MiniLM-L6-v2"
+  },
+  "results": [
+    {
+      "config": "LoRA only",
+      "rouge1": 33.37,
+      "rouge2": 12.11,
+      "rougeL": 25.32,
+      "num_samples": 1500,
+      "wall_time_s": 0.0
+    },
+    {
+      "config": "+ Intra-user",
+      "rouge1": 34.4,
+      "rouge2": 12.67,
+      "rougeL": 26.17,
+      "num_samples": 1500,
+      "wall_time_s": 8.0
+    },
+    {
+      "config": "+ Cross-user",
+      "rouge1": 34.52,
+      "rouge2": 12.55,
+      "rougeL": 26.07,
+      "num_samples": 1500,
+      "wall_time_s": 8.2
+    },
+    {
+      "config": "Full Jarvis-M",
+      "rouge1": 36.13,
+      "rouge2": 14.44,
+      "rougeL": 27.60,
+      "num_samples": 1500,
+      "wall_time_s": 10.3
+    }
+  ]
+}

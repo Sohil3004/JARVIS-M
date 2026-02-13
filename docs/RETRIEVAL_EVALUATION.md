@@ -46,6 +46,6 @@ This is why we report **multiple Recall@K metrics** rather than just Recall@1 - 
 
 ## System Performance Summary
 
-✅ **Fine-tuning successful**: 2h 3min on RTX 5060, ROUGE scores achieved
-✅ **Retrieval validated**: 1,500 test samples, rigorous Recall@K metrics
-✅ **Production-ready**: 84% of queries find correct context in top-5 results
+- [x] **Fine-tuning successful**: 2h 3min on RTX 5060, ROUGE scores achieved
+- [x] **Retrieval validated**: 1,500 test samples, rigorous Recall@K metrics
+- [x] **Production-ready**: 84% of queries find correct context in top-5 results

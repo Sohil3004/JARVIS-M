@@ -24,7 +24,7 @@ build/
 
 # Model files and cache
 cache/
-models/jarvis-bart-lora/checkpoint-*/
+models/
 *.safetensors
 *.bin
 *.pt

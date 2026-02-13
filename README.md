@@ -104,13 +104,13 @@ python -m venv venv
 pip install -r requirements.txt
 
 # 3. Fine-tune BART on DialogSum (2-3 hours on GPU)
-python train_summarizer.py
+python scripts/train_summarizer.py
 
 # 4. Evaluate retrieval module (5 minutes)
-python eval_retrieval.py
+python scripts/eval_retrieval.py
 
 # 5. Test improved inference
-python update_inference.py
+python scripts/update_inference.py
 ```
 
 ---
@@ -119,33 +119,37 @@ python update_inference.py
 
 ```
 JARVIS-M/
-├── train_summarizer.py          # Fine-tune BART with LoRA on DialogSum
-├── eval_retrieval.py            # Benchmark retrieval with Recall@K metrics
-├── update_inference.py          # Inference with compression control
-├── check_gpu.py                 # GPU compatibility checker
+├── scripts/                         # Core Python scripts
+│   ├── train_summarizer.py          # Fine-tune BART with LoRA on DialogSum
+│   ├── eval_retrieval.py            # Benchmark retrieval with Recall@K metrics
+│   ├── update_inference.py          # Inference with compression control
+│   ├── ablation_study.py            # Dual-memory ablation experiments
+│   └── check_gpu.py                 # GPU compatibility checker
 │
-├── requirements.txt             # Python dependencies
-├── README.md                    # This file
-├── RETRIEVAL_EVALUATION.md      # Retrieval metrics explanation
+├── docs/                            # Documentation
+│   ├── ARCHITECTURE.md              # System architecture (Mermaid diagrams)
+│   ├── PROJECT_STRUCTURE.md         # Detailed project structure
+│   └── RETRIEVAL_EVALUATION.md      # Retrieval metrics explanation
+│
+├── requirements.txt                 # Python dependencies
+├── README.md                        # This file
 │
 ├── models/
-│   └── jarvis-bart-lora/        # Fine-tuned LoRA adapters & checkpoints
+│   └── jarvis-bart-lora/            # Fine-tuned LoRA adapters & checkpoints
 │       ├── adapter_model.safetensors
 │       ├── adapter_config.json
-│       ├── checkpoint-1558/     # Mid-training checkpoint
-│       └── checkpoint-2337/     # Final checkpoint (epoch 3)
+│       ├── checkpoint-1558/         # Mid-training checkpoint
+│       └── checkpoint-2337/         # Final checkpoint (epoch 3)
 │
-├── cache/                       # HuggingFace model cache (DialogSum, BART)
-├── paper/
-│   ├── main.tex                 # IEEE conference paper
-│   └── architecture_JARVIS-M.png
+├── cache/                           # HuggingFace model cache (git-ignored)
+├── results/                         # Ablation study results
 │
-├── old/                         # Archived legacy code
+├── old/                             # Archived legacy code
 │   ├── jarvis_m_plus_full.py
 │   ├── jarvis_m_demo.ipynb
 │   └── jarvisM_dialogsum_demo.txt
 │
-└── .venv/                       # Python virtual environment (not tracked)
+└── .venv/                           # Python virtual environment (not tracked)
 ```
 
 ---
@@ -266,28 +270,6 @@ These metrics validate the retrieval module on the full test set (1,500 samples)
 20. **Hugging Face Transformers**: Wolf, T., et al. (2020). "Transformers: State-of-the-Art Natural Language Processing." *EMNLP 2020: System Demonstrations*, pp. 38-45.
 
 ---
-
-## Citation
-
-If you use this code in your research, please cite:
-
-```bibtex
-@inproceedings{jarvism2025,
-  author = {Nair, Sumit Santhosh and Sudarshan, Sohil Nadakeri and Gorripati, Ravi},
-  title = {Jarvis-M: A Cross-Session and Cross-User Memory-Aware Dialogue Summarization Framework},
-  year = {2026},
-  institution = {PES University},
-  address = {Bengaluru, India},
-  note = {Department of Computer Science \& Engineering (AI \& ML)},
-  url = {https://github.com/Sohil3004/JARVIS-M}
-}
-```
-2]
-- **RAG framework**: Lewis et al. [5]
-- **LoRA implementation**: Hu et al. [4] via Hugging Face PEFT library
-- **Sentence embeddings**: Reimers & Gurevych [6] via Sentence-Transformers library
-- **FAISS indexing**: Johnson et al. [8]
-- **Memory-augmented dialogue**: Inspired by work on long-term conversation [7], collaborative memory [13], and MemGPT [14
 ## License
 
 MIT License - See LICENSE file for details.
