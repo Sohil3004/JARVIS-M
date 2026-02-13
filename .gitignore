@@ -49,6 +49,18 @@ tensorboard/
 .ipynb_checkpoints/
 *.ipynb
 
+# LaTeX / Paper files
+*.tex
+*.aux
+*.log
+*.out
+*.toc
+*.bbl
+*.blg
+*.synctex.gz
+*.fdb_latexmk
+*.fls
+
 # OS files
 Thumbs.db
 .DS_Store
