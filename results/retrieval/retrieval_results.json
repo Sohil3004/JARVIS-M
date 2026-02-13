@@ -1,0 +1,43 @@
+{
+  "experiment": "Retrieval Evaluation on DialogSum",
+  "timestamp": "2026-01-24T00:00:00",
+  "embedder": {
+    "model": "sentence-transformers/all-MiniLM-L6-v2",
+    "embedding_dim": 384,
+    "similarity": "cosine"
+  },
+  "index": {
+    "type": "FAISS IndexFlatIP",
+    "num_vectors": 1500
+  },
+  "dataset": {
+    "name": "knkarthick/dialogsum",
+    "split": "test",
+    "num_samples": 1500
+  },
+  "dialogue_to_summary": {
+    "description": "Query with dialogue embeddings, retrieve matching summaries",
+    "recall_at_1": 29.07,
+    "recall_at_5": 84.20,
+    "recall_at_10": 90.07,
+    "successful_top1": 436,
+    "failed_top1": 1064
+  },
+  "summary_to_dialogue": {
+    "description": "Query with summary embeddings, retrieve matching dialogues",
+    "recall_at_1": 27.73,
+    "recall_at_5": 86.93,
+    "recall_at_10": 91.07
+  },
+  "cross_modal": {
+    "description": "Mean Reciprocal Rank across both directions",
+    "mrr": 52.28
+  },
+  "averaged": {
+    "recall_at_1": 28.40,
+    "recall_at_5": 85.57,
+    "recall_at_10": 90.57,
+    "mrr": 52.28
+  },
+  "script": "scripts/eval_retrieval.py"
+}

@@ -1,0 +1,29 @@
+{
+  "experiment": "Inference with Compression Control",
+  "timestamp": "2026-01-24T00:00:00",
+  "model": {
+    "base": "facebook/bart-large-cnn",
+    "adapter": "models/jarvis-bart-lora/"
+  },
+  "compression_config": {
+    "target_ratio": 0.5,
+    "min_ratio": 0.3,
+    "max_ratio": 0.7
+  },
+  "generation_config": {
+    "num_beams": 4,
+    "length_penalty": 2.0,
+    "no_repeat_ngram_size": 3,
+    "repetition_penalty": 1.2,
+    "early_stopping": true,
+    "do_sample": false
+  },
+  "sample_result": {
+    "input_tokens": 273,
+    "output_tokens": 80,
+    "compression_ratio_pct": 29.30,
+    "token_reduction_pct": 70.70,
+    "runtime_s": "<1"
+  },
+  "script": "scripts/update_inference.py"
+}

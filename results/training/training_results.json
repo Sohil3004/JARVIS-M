@@ -1,0 +1,65 @@
+{
+  "experiment": "LoRA Fine-Tuning on DialogSum",
+  "timestamp": "2026-01-24T00:00:00",
+  "model": {
+    "base": "facebook/bart-large-cnn",
+    "total_params": 406000000,
+    "trainable_params": 4700000,
+    "trainable_pct": 1.15,
+    "adapter": "LoRA",
+    "adapter_output": "models/jarvis-bart-lora/"
+  },
+  "lora_config": {
+    "r": 16,
+    "alpha": 32,
+    "target_modules": ["q_proj", "v_proj", "k_proj", "out_proj"],
+    "dropout": 0.05,
+    "bias": "none"
+  },
+  "dataset": {
+    "name": "knkarthick/dialogsum",
+    "train_samples": 12460,
+    "validation_samples": 500,
+    "test_samples": 1500
+  },
+  "hyperparameters": {
+    "epochs": 3,
+    "batch_size": 4,
+    "gradient_accumulation_steps": 4,
+    "effective_batch_size": 16,
+    "learning_rate": 2e-4,
+    "weight_decay": 0.01,
+    "warmup_steps": 100,
+    "max_input_length": 1024,
+    "max_target_length": 128,
+    "fp16": false
+  },
+  "hardware": {
+    "gpu": "NVIDIA RTX 5060 Laptop GPU",
+    "vram_gb": 8.55,
+    "compute_capability": "sm_120",
+    "training_mode": "CPU fallback"
+  },
+  "training_metrics": {
+    "train_loss": 1.0633,
+    "train_runtime_s": 7426.55,
+    "train_runtime_human": "2h 3min",
+    "train_samples_per_second": 5.033,
+    "train_steps_per_second": 0.315,
+    "total_flos": 8.209e+16
+  },
+  "evaluation_metrics": {
+    "eval_loss": 1.3409,
+    "rouge1": 36.13,
+    "rouge2": 14.44,
+    "rougeL": 27.60,
+    "rouge_avg": 26.05,
+    "eval_runtime_s": 1117.10,
+    "eval_samples_per_second": 1.343
+  },
+  "checkpoints": [
+    {"name": "checkpoint-1558", "epoch": 2},
+    {"name": "checkpoint-2337", "epoch": 3}
+  ],
+  "script": "scripts/train_summarizer.py"
+}
