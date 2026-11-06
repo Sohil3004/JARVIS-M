@@ -1,0 +1,17 @@
+# Train the HGNN scorer.  Prereqs:
+#   jarvis-eval data make-stress --split train --n 300
+#   jarvis-eval data make-stress --split dev --n 60
+#   jarvis-eval data fetch longmemeval
+# then: jarvis-eval train-hgnn configs/train/hgnn_statebench_lme.yaml
+# Ablation checkpoint without message passing:
+#   jarvis-eval train-hgnn configs/train/hgnn_statebench_lme.yaml --set model.layers=0 --set output=models/hgnn/hgnn_v1_mlp.pt
+base: ../hypergraph_base.yaml
+name: hgnn_v1
+output: models/hgnn/hgnn_v1.pt
+train_data:
+  - {name: jarvis, path: data/stress/statebench_train.json}
+  - {name: longmemeval, variant: s_cleaned, limit: 400}    # held-out remainder is not used for eval here
+dev_data:
+  - {name: jarvis, path: data/stress/statebench_dev.json}
+model: {hidden: 128, layers: 2, gating: true, dropout: 0.1}
+train: {epochs: 15, lr: 0.001, weight_decay: 0.0001, device: auto, eval_k: 10, patience: 4, seed: 0}

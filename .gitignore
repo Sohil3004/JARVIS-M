@@ -86,3 +86,5 @@ runs/
 .pytest_cache/
 .ruff_cache/
 !configs/models/
+data/stress/
+data/extract/

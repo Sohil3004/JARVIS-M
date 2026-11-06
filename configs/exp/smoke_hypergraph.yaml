@@ -1,0 +1,12 @@
+# CPU-only hypergraph smoke test on the toy fixture (no models).
+base: ../defaults.yaml
+name: smoke_hypergraph
+dataset: {name: jarvis, path: tests/fixtures/toy_team.json}
+retrieval: {budget_tokens: 200, max_items: 4}
+memory: {type: hypergraph, embedder: {type: hashing}}
+arms:
+  - {name: hybrid,          set: {memory: {type: hybrid, embedder: {type: hashing}}}}
+  - {name: hg_seeds,        set: {memory.scorer: {type: seeds}}}
+  - {name: hg_fixed,        set: {memory.scorer: {type: fixed}}}
+  - {name: hg_fixed_header, set: {memory.scorer: {type: fixed}, memory.state_header: true}}
+  - {name: hg_no_version,   set: {memory.edge_types: [reply, episode, channel, speaker, entity]}}

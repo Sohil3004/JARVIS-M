@@ -27,6 +27,15 @@ def _legacy_v2(**kw):
 REGISTRY["legacy_v2"] = _legacy_v2
 
 
+def _hypergraph(**kw):
+    from .hypergraph import HypergraphMemory
+
+    return HypergraphMemory(**kw)
+
+
+REGISTRY["hypergraph"] = _hypergraph
+
+
 def register(name: str):
     def deco(factory):
         REGISTRY[name] = factory

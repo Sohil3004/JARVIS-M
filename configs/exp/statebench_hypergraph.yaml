@@ -1,0 +1,30 @@
+# Jarvis-StateBench (held-out phrasing families), every hypergraph ablation + baselines.
+#   jarvis-eval data make-stress --split test --n 300
+#   jarvis-eval run   configs/exp/statebench_hypergraph.yaml
+#   jarvis-eval judge runs/statebench_hypergraph --judge configs/models/judge_qwen3_8b_4bit_hf.yaml
+#   jarvis-eval report runs/statebench_hypergraph --baseline hybrid
+base: [../defaults.yaml, ../hypergraph_base.yaml, ../models/reader_qwen3_4b_4bit_hf.yaml, ../models/judge_deferred.yaml]
+name: statebench_hypergraph
+dataset: {name: jarvis, path: data/stress/statebench_test.json}
+retrieval: {max_items: 10, budget_tokens: null}
+arms:
+  # ---- message-level baselines
+  - {name: bm25,            set: {memory: {type: bm25}}}
+  - {name: hybrid,          set: {memory: {type: hybrid, embedder: {type: st, model_name: Qwen/Qwen3-Embedding-0.6B}}}}
+  - {name: legacy_v2,       set: {memory: {type: legacy_v2}, retrieval: {max_items: null, budget_tokens: 3000}}}
+  # ---- hypergraph, no learning
+  - {name: hg_seeds,        set: {memory.scorer: {type: seeds}}}                       # candidates only, no propagation / versions
+  - {name: hg_version_only, set: {memory.scorer: {type: fixed, edge_weights: {}}}}       # version logic, no propagation
+  - {name: hg_fixed,        set: {memory.scorer: {type: fixed}}}                       # HyperMem-style fixed propagation
+  - {name: hg_fixed_header, set: {memory.scorer: {type: fixed}, memory.state_header: true, retrieval.budget_tokens: 3000}}
+  # ---- hyperedge-type ablations (fixed scorer)
+  - {name: hg_no_reply,     set: {memory.edge_types: [episode, channel, speaker, entity, version]}}
+  - {name: hg_no_entity,    set: {memory.edge_types: [reply, episode, channel, speaker, version]}}
+  - {name: hg_no_version,   set: {memory.edge_types: [reply, episode, channel, speaker, entity]}}
+  # ---- learned HGNN (train first: jarvis-eval train-hgnn configs/train/hgnn_statebench_lme.yaml)
+  - {name: hg_hgnn,         set: {memory.scorer: {type: hgnn, checkpoint: models/hgnn/hgnn_v1.pt}}}
+  - {name: hg_hgnn_mlp,     set: {memory.scorer: {type: hgnn, checkpoint: models/hgnn/hgnn_v1_mlp.pt}}}   # no message passing
+  - {name: hg_hgnn_header,  set: {memory.scorer: {type: hgnn, checkpoint: models/hgnn/hgnn_v1.pt}, memory.state_header: true, retrieval.budget_tokens: 3000}}
+  # ---- extractor ablation (run `jarvis-eval extract` first)
+  - {name: hg_qwen_extract, set: {memory.extractor: {type: cached, path: data/extract/statebench_test/qwen3_4b.jsonl}}}
+  - {name: hg_hgnn_qwen,    set: {memory.extractor: {type: cached, path: data/extract/statebench_test/qwen3_4b.jsonl}, memory.scorer: {type: hgnn, checkpoint: models/hgnn/hgnn_v1.pt}}}

@@ -1,0 +1,9 @@
+# Offline LLM state extraction (run once per dataset, resumable):
+#   jarvis-eval extract configs/exp/gmb_hypergraph.yaml --extractor configs/models/extractor_qwen3_4b_4bit_hf.yaml
+name: qwen3_4b
+extractor:
+  type: llm
+  batch: 8          # target messages per call
+  context: 6        # preceding messages shown for coreference
+  prefilter: heuristic
+  chat: {type: hf, model: Qwen/Qwen3-4B-Instruct-2507, load_in_4bit: true}

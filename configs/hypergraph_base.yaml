@@ -1,0 +1,10 @@
+# Shared memory settings for hypergraph experiments and HGNN training.
+# The HGNN checkpoint is tied to this embedder: train and evaluate with the same one.
+memory:
+  type: hypergraph
+  embedder: {type: st, model_name: Qwen/Qwen3-Embedding-0.6B}
+  extractor: {type: heuristic}
+  n_seeds: 30
+  max_candidates: 300
+  max_edge_size: 60
+  scorer: {type: fixed}

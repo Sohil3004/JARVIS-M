@@ -1,0 +1,8 @@
+# Same extractor through Ollama / LM Studio / vLLM (often faster than transformers on Windows).
+name: qwen3_local
+extractor:
+  type: llm
+  batch: 8
+  context: 6
+  prefilter: heuristic
+  chat: {type: openai, model: CHANGE_ME, base_url: "http://localhost:11434/v1", api_key_env: ""}

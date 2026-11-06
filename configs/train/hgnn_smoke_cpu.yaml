@@ -1,0 +1,8 @@
+# CPU smoke training (minutes): hashing embedder, small model. Not for reported numbers.
+name: hgnn_smoke
+output: models/hgnn/hgnn_smoke.pt
+memory: {type: hypergraph, embedder: {type: hashing}}
+train_data: [{name: jarvis, path: data/stress/statebench_train.json, limit: 600}]
+dev_data: [{name: jarvis, path: data/stress/statebench_dev.json, limit: 200}]
+model: {hidden: 64, layers: 2}
+train: {epochs: 4, device: cpu, eval_k: 5}

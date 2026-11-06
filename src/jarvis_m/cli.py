@@ -4,6 +4,9 @@
     jarvis-eval judge runs/<name> --judge configs/models/judge_qwen3_8b_4bit_hf.yaml [--force]
     jarvis-eval report runs/<name> [--baseline bm25] [--out table.md]
     jarvis-eval data fetch groupmembench|locomo|longmemeval|evermembench
+    jarvis-eval data make-stress --split train --n 300 [--seed 0] [--out data/stress/statebench_train.json]
+    jarvis-eval extract configs/exp/<exp>.yaml --extractor configs/models/extractor_qwen3_4b_4bit_hf.yaml
+    jarvis-eval train-hgnn configs/train/hgnn_statebench_lme.yaml
     jarvis-eval data info configs/exp/gmb_baselines.yaml
 """
 
@@ -44,6 +47,22 @@ def main(argv=None) -> int:
     f.add_argument("--force", action="store_true")
     i = dsub.add_parser("info")
     i.add_argument("config")
+    ms = dsub.add_parser("make-stress", help="generate Jarvis-StateBench conversations")
+    ms.add_argument("--split", choices=["train", "dev", "test"], default="train")
+    ms.add_argument("--n", type=int, default=300)
+    ms.add_argument("--seed", type=int, default=0)
+    ms.add_argument("--noise", type=float, default=1.0)
+    ms.add_argument("--out", default=None)
+
+    ex = sub.add_parser("extract", help="offline (LLM) state extraction for an experiment's dataset, resumable")
+    ex.add_argument("config", help="experiment yaml (its `dataset:` is used)")
+    ex.add_argument("--extractor", required=True, metavar="YAML", help="file with a top-level `extractor:` block")
+    ex.add_argument("--set", dest="overrides", action="append", default=[], metavar="KEY=VALUE")
+    ex.add_argument("--out", default=None, help="cache path (default data/extract/<dataset>/<name>.jsonl)")
+
+    th = sub.add_parser("train-hgnn", help="train the HGNN scorer on gold-evidence labels")
+    th.add_argument("config")
+    th.add_argument("--set", dest="overrides", action="append", default=[], metavar="KEY=VALUE")
 
     a = ap.parse_args(argv)
 
@@ -72,6 +91,16 @@ def main(argv=None) -> int:
 
         return _judge(find_runs(a.paths), a.judge, a.overrides, a.force)
 
+    if a.cmd == "extract":
+        return _extract(a)
+
+    if a.cmd == "train-hgnn":
+        from .config import apply_overrides, load_config
+        from .memory.hypergraph.train import train_hgnn
+
+        train_hgnn(apply_overrides(load_config(a.config), a.overrides))
+        return 0
+
     if a.cmd == "report":
         from .eval.report import compare, find_runs
 
@@ -87,6 +116,13 @@ def main(argv=None) -> int:
 
             fetch(a.name, force=a.force)
             return 0
+        if a.dcmd == "make-stress":
+            from .data.stress import generate, save
+
+            out = a.out or f"data/stress/statebench_{a.split}.json"
+            ds = generate(a.n, seed=a.seed, split=a.split, noise=a.noise)
+            print(f"[stress] {ds.summary()} -> {save(ds, out)}")
+            return 0
         if a.dcmd == "info":
             from .config import load_config
             from .data.loaders import load_dataset
@@ -94,6 +130,47 @@ def main(argv=None) -> int:
             print(load_dataset(load_config(a.config)["dataset"]).summary())
             return 0
     return 1
+
+
+def _extract(a) -> int:
+    import time
+
+    from .config import apply_overrides, load_config
+    from .data.loaders import load_dataset
+    from .extract import ExtractionStore, build_extractor
+
+    ecfg = apply_overrides(load_config(a.extractor), a.overrides)
+    if "extractor" not in ecfg:
+        raise SystemExit(f"{a.extractor} has no top-level `extractor:` block")
+    ds = load_dataset(load_config(a.config)["dataset"])
+    name = ecfg.get("name", Path(a.extractor).stem)
+    out = Path(a.out or Path("data/extract") / ds.name / f"{name}.jsonl")
+    store = ExtractionStore(out)
+    done = store.done()
+    extractor = build_extractor(ecfg["extractor"])
+    total = sum(len(c.messages) for c in ds.conversations.values())
+    print(f"[extract] {ds.name}: {total} messages, {len(done)} already in {out}")
+    t0, n_done = time.perf_counter(), [0]
+
+    def on_batch(recs, ids):
+        store.append(recs, ids)
+        n_done[0] += len(ids)
+        if n_done[0] % 400 < len(ids):
+            rate = n_done[0] / max(1e-6, time.perf_counter() - t0)
+            left = (total - len(done) - n_done[0]) / max(rate, 1e-6)
+            print(f"  {n_done[0]} msgs, {rate:.1f} msg/s, ~{left / 3600:.1f} h left")
+
+    for conv in ds.conversations.values():
+        todo = [m for m in conv.messages if m.id not in done]
+        if not todo:
+            continue
+        if hasattr(extractor, "extract") and "on_batch" in extractor.extract.__code__.co_varnames:
+            extractor.extract(todo, on_batch=on_batch)
+        else:
+            recs = extractor.extract(todo)
+            on_batch(recs, [m.id for m in todo])
+    print(f"[extract] done -> {out}  (use memory.extractor: {{type: cached, path: {out.as_posix()}}})")
+    return 0
 
 
 def _judge(run_dirs, judge_yaml, overrides, force) -> int:

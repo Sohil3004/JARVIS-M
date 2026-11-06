@@ -12,6 +12,8 @@ SYSTEMS = {
     "dense": {"type": "dense", "embedder": {"type": "hashing"}},
     "hybrid": {"type": "hybrid", "embedder": {"type": "hashing"}},
     "legacy_v2": {"type": "legacy_v2"},
+    "hypergraph": {"type": "hypergraph", "embedder": {"type": "hashing"}},
+    "hypergraph_header": {"type": "hypergraph", "embedder": {"type": "hashing"}, "state_header": True},
 }
 
 
@@ -39,7 +41,7 @@ def test_contract(name, toy):
     assert not any(it.kind == "message" for it in r2.items)
 
 
-@pytest.mark.parametrize("name", ["bm25", "dense", "hybrid"])
+@pytest.mark.parametrize("name", ["bm25", "dense", "hybrid", "hypergraph"])
 def test_ranked_systems_find_keyword_evidence(name, toy):
     mem = _build(name)
     mem.ingest(toy.conversations["fintech"].messages)

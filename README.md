@@ -17,7 +17,9 @@ src/jarvis_m/
   types.py          Message / Conversation / Question / Dataset (no answer leakage to systems)
   interfaces.py     MemorySystem: reset() -> ingest(messages) -> retrieve(query, asker, budget)
   memory/           baselines (full_context, recency, bm25, dense, hybrid), legacy_v2 adapter, registry
-  data/             loaders (GroupMemBench, LoCoMo, LongMemEval, native JSON) + `fetch`
+  memory/hypergraph hypergraph memory: graph builder, subgraphs, fixed propagation, HGNN + trainer
+  extract/          state extraction: heuristic (inline) and Qwen LLM (offline, cached, resumable)
+  data/             loaders (GroupMemBench, LoCoMo, LongMemEval, native JSON), `fetch`, StateBench generator
   eval/             reader + judges (official benchmark prompts), metrics, runner, report
   llm.py            chat backends: local HF (Qwen3...), OpenAI-compatible server, test fakes
   embeddings.py     hashing (tests) and sentence-transformers (e.g. Qwen3-Embedding)
@@ -25,7 +27,10 @@ src/jarvis_m/
 configs/
   defaults.yaml     shared defaults (no-LLM reader/judge so anything runs on CPU)
   models/           reader / judge presets (8 GB: *_4bit_hf + judge_deferred)
-  exp/              experiments: smoke_toy, gmb_baselines, gmb_scope_ablation, locomo, longmemeval
+  hypergraph_base.yaml  shared hypergraph memory settings (embedder must match the HGNN checkpoint)
+  exp/              experiments: smoke_*, gmb_baselines, gmb_scope_ablation, locomo, longmemeval,
+                    statebench_hypergraph, gmb_hypergraph (full ablation grids)
+  train/            HGNN training configs
 tests/              pytest suite (CPU-only, seconds) + fixtures
 legacy/             v1 (ICCSIT) and v2 code, kept runnable for reproduction
 ```
@@ -85,6 +90,44 @@ Each run writes `runs/<name>/<arm>/{config.yaml,results.jsonl,summary.json}`. Ro
 the prediction, judge verdict, retrieved message ids, evidence recall (where gold
 evidence exists), stale-answer hits, abstention flags, context tokens and latencies.
 
+## Hypergraph memory (Jarvis-M v3)
+
+Messages are nodes; raw text is never replaced. Typed hyperedges add structure:
+`reply` threads, time-gap `episode`s, `channel` and `speaker` scope, `entity` mentions,
+and `version` chains (successive values of one topic slot; older values are marked
+superseded, rejected alternatives never become current). Retrieval:
+
+1. hybrid BM25 + dense seeds (top `n_seeds`);
+2. expand along small hyperedges; always add the current value of any touched slot, and
+   the asker's own commitments for first-person questions ("what am I doing?");
+3. score the candidate subgraph with `scorer: fixed` (HyperMem-style propagation +
+   version logic), `seeds` (no propagation) or `hgnn` (learned, query-gated message passing);
+4. pack to the budget; optional `state_header: true` prepends current slot values + history.
+
+Full pipeline on an 8 GB GPU (each step is resumable):
+
+```powershell
+# data
+jarvis-eval data make-stress --split train --n 300
+jarvis-eval data make-stress --split dev   --n 60
+jarvis-eval data make-stress --split test  --n 300      # held-out phrasing families
+jarvis-eval data fetch groupmembench ; jarvis-eval data fetch longmemeval
+# optional: Qwen state extraction (hours on GroupMemBench; minutes on StateBench)
+jarvis-eval extract configs/exp/statebench_hypergraph.yaml --extractor configs/models/extractor_qwen3_4b_4bit_hf.yaml
+jarvis-eval extract configs/exp/gmb_hypergraph.yaml        --extractor configs/models/extractor_qwen3_4b_4bit_hf.yaml
+# HGNN (+ the no-message-passing ablation)
+jarvis-eval train-hgnn configs/train/hgnn_statebench_lme.yaml
+jarvis-eval train-hgnn configs/train/hgnn_statebench_lme.yaml --set model.layers=0 --set output=models/hgnn/hgnn_v1_mlp.pt
+# evaluate every arm (reader pass), then judge, then report
+jarvis-eval run   configs/exp/statebench_hypergraph.yaml
+jarvis-eval judge runs/statebench_hypergraph --judge configs/models/judge_qwen3_8b_4bit_hf.yaml
+jarvis-eval report runs/statebench_hypergraph --baseline hybrid
+```
+
+Arms that need an artefact you have not built yet (HGNN checkpoint, extraction cache)
+fail fast; run the rest with `--arm`. See [docs/HYPERGRAPH.md](docs/HYPERGRAPH.md) for the
+design rationale and first CPU-only findings.
+
 ## Adding a memory system
 
 Subclass `jarvis_m.interfaces.MemorySystem`, register it in `jarvis_m/memory/__init__.py`,
@@ -103,9 +146,11 @@ experiment as `memory: {type: <name>, ...}`. Ablations are `arms` that flip its 
 ## Status
 
 - [x] Repo restructure, harness, baselines, loaders, tests
-- [ ] Learned state extractor (replaces v2 regexes)
-- [ ] Hypergraph memory + HGNN retriever
-- [ ] Jarvis-StateBench stress generator, EverMemBench loader
+- [x] State extractors: heuristic + Qwen LLM (cached)
+- [x] Hypergraph memory, fixed propagation, learned HGNN + trainer
+- [x] Jarvis-StateBench stress generator (held-out phrasing test split)
+- [ ] GPU runs: Qwen extraction, HGNN with Qwen3-Embedding, full ablation grids + judge pass
+- [ ] EverMemBench loader; LoCoMo held-out-conversation HGNN eval
 - [ ] External baselines (Mem0, Zep/Graphiti, HippoRAG 2, LLMLingua-2)
 
 Licence: MIT (see `LICENSE`).
