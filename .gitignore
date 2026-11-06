@@ -80,3 +80,9 @@ Thumbs.db
 # Git LFS (if needed)
 # *.safetensors filter=lfs diff=lfs merge=lfs -text
 # *.bin filter=lfs diff=lfs merge=lfs -text
+# Jarvis-M harness
+data/raw/
+runs/
+.pytest_cache/
+.ruff_cache/
+!configs/models/

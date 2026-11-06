@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jarvis-m"
+version = "0.2.0.dev0"
+description = "Jarvis-M: multi-party conversational memory (research harness)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = ["numpy>=1.24", "pyyaml>=6.0"]
+
+[project.optional-dependencies]
+retrieval = ["sentence-transformers>=3.0", "faiss-cpu>=1.8"]
+llm = ["torch>=2.4", "transformers>=4.51", "accelerate>=0.33", "peft>=0.12"]
+quant = ["bitsandbytes>=0.45"]
+dev = ["pytest>=8", "ruff>=0.6"]
+all = ["jarvis-m[retrieval,llm,quant,dev]"]
+
+[project.scripts]
+jarvis-eval = "jarvis_m.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "."]
+markers = [
+  "slow: needs downloaded models or datasets (run with -m slow)",
+  "gpu: needs a CUDA GPU",
+]
+addopts = "-m 'not slow and not gpu'"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = ["legacy"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501", "B905", "UP006", "UP035", "UP045", "UP007"]

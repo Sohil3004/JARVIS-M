@@ -1,0 +1,3 @@
+reader:
+  chat: {type: hf, model: Qwen/Qwen3-8B, dtype: bf16, enable_thinking: false}
+tokenizer: Qwen/Qwen3-8B

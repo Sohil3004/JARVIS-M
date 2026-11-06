@@ -1,0 +1,5 @@
+# Full-precision local judge (needs ~17 GB VRAM). On 8 GB use judge_qwen3_8b_4bit_hf.yaml.
+judge:
+  type: llm
+  protocol: groupmembench
+  chat: {type: hf, model: Qwen/Qwen3-8B, dtype: bf16, enable_thinking: false}

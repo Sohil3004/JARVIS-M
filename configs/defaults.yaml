@@ -1,0 +1,12 @@
+# Shared defaults; experiment files `base:` this and override.
+output_dir: runs
+seed: 0
+tokenizer: approx            # or an HF tokenizer name (e.g. Qwen/Qwen3-4B-Instruct-2507) for exact budgets
+retrieval:
+  budget_tokens: null        # token budget for the reader context (null = unlimited)
+  max_items: 10              # GroupMemBench protocol: top-10 retrieved messages
+reader:
+  max_tokens: 512
+  chat: {type: overlap}      # no-LLM reader; override with a models/*.yaml preset
+judge:
+  type: match                # no-LLM judge; use an llm judge for paper numbers

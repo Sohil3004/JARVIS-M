@@ -1,0 +1,7 @@
+# Local judge for the second pass on an 8 GB GPU: Qwen3-8B in NF4 (~5.5 GB), thinking off.
+# Judge prompts are short, so 4-bit fits comfortably once the reader is unloaded.
+# Validate against human labels / an API judge on a subset before reporting (see README).
+judge:
+  type: llm
+  protocol: groupmembench    # set to longmemeval for LongMemEval runs
+  chat: {type: hf, model: Qwen/Qwen3-8B, load_in_4bit: true, enable_thinking: false}

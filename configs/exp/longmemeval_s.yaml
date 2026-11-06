@@ -1,0 +1,11 @@
+base: ../defaults.yaml
+name: longmemeval_s
+dataset: {name: longmemeval, variant: s_cleaned}
+# Two-pass on 8 GB: answers now, then `jarvis-eval judge runs/<name> --judge configs/models/judge_qwen3_8b_4bit_hf.yaml --set judge.protocol=longmemeval`
+judge: {type: deferred}
+retrieval: {max_items: 20}
+memory: {type: bm25}
+arms:
+  - {name: bm25,   set: {memory: {type: bm25}}}
+  - {name: dense,  set: {memory: {type: dense, embedder: {type: st, model_name: Qwen/Qwen3-Embedding-0.6B}}}}
+  - {name: hybrid, set: {memory: {type: hybrid, embedder: {type: st, model_name: Qwen/Qwen3-Embedding-0.6B}}}}

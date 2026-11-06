@@ -1,0 +1,4 @@
+# Any OpenAI-compatible local server (Ollama / LM Studio / vLLM). Set `model` to the
+# name your server lists (e.g. `ollama list`). Ollama default URL shown.
+reader:
+  chat: {type: openai, model: CHANGE_ME, base_url: "http://localhost:11434/v1", api_key_env: ""}

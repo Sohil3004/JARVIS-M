@@ -1,0 +1,11 @@
+# Intra- vs cross-user retrieval (the v1 ICCSIT idea), tested properly on multi-party data.
+base: ../defaults.yaml
+name: gmb_scope_ablation
+dataset: {name: groupmembench, domains: [Finance]}
+memory: {type: hybrid, embedder: {type: st, model_name: Qwen/Qwen3-Embedding-0.6B}}
+arms:
+  - {name: all,          set: {memory.scope: all}}
+  - {name: intra_only,   set: {memory.scope: asker}}
+  - {name: cross_only,   set: {memory.scope: others}}
+  - {name: asker_boost2, set: {memory.asker_boost: 2.0}}
+  - {name: recency_7d,   set: {memory.recency_half_life_days: 7}}

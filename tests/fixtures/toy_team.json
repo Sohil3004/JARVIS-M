@@ -1,0 +1,289 @@
+{
+ "name": "toy_team",
+ "conversations": [
+  {
+   "id": "cloud",
+   "messages": [
+    {
+     "id": "cloud-m0",
+     "speaker": "Alice",
+     "text": "Let's go with AWS EC2 for the backend deployment.",
+     "timestamp": 1767225600,
+     "channel": "eng",
+     "session_id": "d0"
+    },
+    {
+     "id": "cloud-m1",
+     "speaker": "Alice",
+     "text": "We need the release done by Friday 5 PM.",
+     "timestamp": 1767225660,
+     "channel": "eng",
+     "session_id": "d0"
+    },
+    {
+     "id": "cloud-m2",
+     "speaker": "Bob",
+     "text": "I'll start the Terraform scripts for EC2 today.",
+     "timestamp": 1767225720,
+     "channel": "eng",
+     "session_id": "d0"
+    },
+    {
+     "id": "cloud-m3",
+     "speaker": "Charlie",
+     "text": "Heads up, our startup grant only covers Google Cloud credits.",
+     "timestamp": 1767312180,
+     "channel": "eng",
+     "session_id": "d1"
+    },
+    {
+     "id": "cloud-m4",
+     "speaker": "Alice",
+     "text": "Ok scrap EC2, Cloud Run it is because of the credits.",
+     "timestamp": 1767312240,
+     "channel": "eng",
+     "session_id": "d1"
+    },
+    {
+     "id": "cloud-m5",
+     "speaker": "Bob",
+     "text": "Understood, dropping the EC2 scripts and writing a Cloud Run Dockerfile.",
+     "timestamp": 1767312300,
+     "channel": "eng",
+     "session_id": "d1"
+    },
+    {
+     "id": "cloud-m6",
+     "speaker": "Bob",
+     "text": "Cloud Run deploy is failing with Error 403 on the container registry.",
+     "timestamp": 1767398760,
+     "channel": "eng",
+     "session_id": "d2"
+    },
+    {
+     "id": "cloud-m7",
+     "speaker": "Charlie",
+     "text": "I will grant the Artifact Registry Reader role to Bob's service account tomorrow.",
+     "timestamp": 1767398820,
+     "channel": "eng",
+     "session_id": "d2"
+    },
+    {
+     "id": "cloud-m8",
+     "speaker": "Dana",
+     "text": "Anyone up for lunch at the new dosa place?",
+     "timestamp": 1767398880,
+     "channel": "random",
+     "session_id": "d2"
+    },
+    {
+     "id": "cloud-m9",
+     "speaker": "Alice",
+     "text": "Pushing the release out, Monday 10 AM works better for everyone.",
+     "timestamp": 1767485340,
+     "channel": "eng",
+     "session_id": "d3"
+    },
+    {
+     "id": "cloud-m10",
+     "speaker": "Dana",
+     "text": "For my part, I'm owning the load testing plan this sprint.",
+     "timestamp": 1767485400,
+     "channel": "eng",
+     "session_id": "d3"
+    }
+   ]
+  },
+  {
+   "id": "fintech",
+   "messages": [
+    {
+     "id": "fintech-m0",
+     "speaker": "Dan",
+     "text": "We decided to use MongoDB for the transaction records.",
+     "timestamp": 1767225600,
+     "channel": "db",
+     "session_id": "d0"
+    },
+    {
+     "id": "fintech-m1",
+     "speaker": "Elena",
+     "text": "I'm designing the MongoDB collections and indexes.",
+     "timestamp": 1767225660,
+     "channel": "db",
+     "session_id": "d0"
+    },
+    {
+     "id": "fintech-m2",
+     "speaker": "Farhan",
+     "text": "Compliance flagged MongoDB: audits need strict ACID transactions.",
+     "timestamp": 1767312120,
+     "channel": "db",
+     "session_id": "d1"
+    },
+    {
+     "id": "fintech-m3",
+     "speaker": "Dan",
+     "text": "Fine, we are moving the transaction store to PostgreSQL instead.",
+     "timestamp": 1767312180,
+     "channel": "db",
+     "session_id": "d1"
+    },
+    {
+     "id": "fintech-m4",
+     "speaker": "Elena",
+     "text": "Rewriting the schemas as PostgreSQL tables with foreign keys.",
+     "timestamp": 1767312240,
+     "channel": "db",
+     "session_id": "d1"
+    },
+    {
+     "id": "fintech-m5",
+     "speaker": "Elena",
+     "text": "The PostgreSQL connection pool is exhausted, we get Error 503 under load.",
+     "timestamp": 1767398700,
+     "channel": "db",
+     "session_id": "d2"
+    },
+    {
+     "id": "fintech-m6",
+     "speaker": "Farhan",
+     "text": "I'll put PgBouncer in front of the database to fix the 503s.",
+     "timestamp": 1767398760,
+     "channel": "db",
+     "session_id": "d2"
+    },
+    {
+     "id": "fintech-m7",
+     "speaker": "Dan",
+     "text": "Separately, we decided to use Grafana for dashboards.",
+     "timestamp": 1767398820,
+     "channel": "ops",
+     "session_id": "d2"
+    }
+   ]
+  }
+ ],
+ "questions": [
+  {
+   "id": "cloud/q1",
+   "conversation_id": "cloud",
+   "question": "Which platform are we deploying the backend on?",
+   "answer": "Google Cloud Run",
+   "asker": "Bob",
+   "category": "knowledge_update",
+   "evidence_ids": [
+    "cloud-m4"
+   ],
+   "stale_answers": [
+    "AWS EC2",
+    "EC2"
+   ],
+   "is_abstention": false,
+   "question_time": 1767657600
+  },
+  {
+   "id": "cloud/q2",
+   "conversation_id": "cloud",
+   "question": "What is the current release deadline?",
+   "answer": "Monday 10 AM",
+   "asker": "Bob",
+   "category": "knowledge_update",
+   "evidence_ids": [
+    "cloud-m9"
+   ],
+   "stale_answers": [
+    "Friday 5 PM",
+    "Friday"
+   ],
+   "is_abstention": false,
+   "question_time": 1767657600
+  },
+  {
+   "id": "cloud/q3",
+   "conversation_id": "cloud",
+   "question": "Who is fixing the Error 403 registry permission problem?",
+   "answer": "Charlie",
+   "asker": "Alice",
+   "category": "multi_hop",
+   "evidence_ids": [
+    "cloud-m6",
+    "cloud-m7"
+   ],
+   "stale_answers": [],
+   "is_abstention": false,
+   "question_time": 1767657600
+  },
+  {
+   "id": "cloud/q4",
+   "conversation_id": "cloud",
+   "question": "What am I owning this sprint?",
+   "answer": "the load testing plan",
+   "asker": "Dana",
+   "category": "user_implicit",
+   "evidence_ids": [
+    "cloud-m10"
+   ],
+   "stale_answers": [],
+   "is_abstention": false,
+   "question_time": 1767657600
+  },
+  {
+   "id": "cloud/q5",
+   "conversation_id": "cloud",
+   "question": "What budget did finance approve for the migration?",
+   "answer": "Not mentioned in the conversation",
+   "asker": "Alice",
+   "category": "abstention",
+   "evidence_ids": [],
+   "stale_answers": [],
+   "is_abstention": true,
+   "question_time": 1767657600
+  },
+  {
+   "id": "fintech/q1",
+   "conversation_id": "fintech",
+   "question": "Which database stores the transaction records?",
+   "answer": "PostgreSQL",
+   "asker": "Elena",
+   "category": "knowledge_update",
+   "evidence_ids": [
+    "fintech-m3"
+   ],
+   "stale_answers": [
+    "MongoDB"
+   ],
+   "is_abstention": false,
+   "question_time": 1767657600
+  },
+  {
+   "id": "fintech/q2",
+   "conversation_id": "fintech",
+   "question": "What tool is being used to fix the 503 connection errors?",
+   "answer": "PgBouncer",
+   "asker": "Dan",
+   "category": "multi_hop",
+   "evidence_ids": [
+    "fintech-m5",
+    "fintech-m6"
+   ],
+   "stale_answers": [],
+   "is_abstention": false,
+   "question_time": 1767657600
+  },
+  {
+   "id": "fintech/q3",
+   "conversation_id": "fintech",
+   "question": "Which tool did the team pick for dashboards?",
+   "answer": "Grafana",
+   "asker": "Elena",
+   "category": "single_hop",
+   "evidence_ids": [
+    "fintech-m7"
+   ],
+   "stale_answers": [],
+   "is_abstention": false,
+   "question_time": 1767657600
+  }
+ ]
+}

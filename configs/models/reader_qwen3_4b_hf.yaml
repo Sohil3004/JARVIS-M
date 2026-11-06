@@ -1,0 +1,4 @@
+# bf16 reader (~8 GB weights): needs a >= 12 GB GPU. On 8 GB use reader_qwen3_4b_4bit_hf.yaml.
+reader:
+  chat: {type: hf, model: Qwen/Qwen3-4B-Instruct-2507, dtype: bf16}
+tokenizer: Qwen/Qwen3-4B-Instruct-2507

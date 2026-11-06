@@ -1,0 +1,16 @@
+# GroupMemBench, official protocol (top-10 messages), all message-level baselines.
+# 8 GB GPU, two passes:
+#   jarvis-eval run   configs/exp/gmb_baselines.yaml
+#   jarvis-eval judge runs/gmb_baselines --judge configs/models/judge_qwen3_8b_4bit_hf.yaml
+# (or one command: add `--then-judge configs/models/judge_qwen3_8b_4bit_hf.yaml` to the run)
+base: [../defaults.yaml, ../models/reader_qwen3_4b_4bit_hf.yaml, ../models/judge_deferred.yaml]
+name: gmb_baselines
+dataset: {name: groupmembench, domains: [Finance, Technology, Healthcare, Manufacturing]}
+retrieval: {max_items: 10, budget_tokens: null}
+memory: {type: bm25}
+arms:
+  - {name: bm25,      set: {memory: {type: bm25}}}
+  - {name: dense,     set: {memory: {type: dense, embedder: {type: st, model_name: Qwen/Qwen3-Embedding-0.6B}}}}
+  - {name: hybrid,    set: {memory: {type: hybrid, embedder: {type: st, model_name: Qwen/Qwen3-Embedding-0.6B}}}}
+  - {name: recency,   set: {memory: {type: recency}, retrieval: {max_items: null, budget_tokens: 4000}}}
+  - {name: legacy_v2, set: {memory: {type: legacy_v2}, retrieval: {max_items: null, budget_tokens: 4000}}}

@@ -1,0 +1,5 @@
+# 8 GB GPU default reader: Qwen3-4B-Instruct-2507 in NF4 (~3 GB weights) + room for long prompts.
+# Needs `pip install -e .[llm,quant]`.
+reader:
+  chat: {type: hf, model: Qwen/Qwen3-4B-Instruct-2507, load_in_4bit: true, max_input_tokens: 12000}
+tokenizer: Qwen/Qwen3-4B-Instruct-2507

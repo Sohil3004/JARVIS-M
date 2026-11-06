@@ -1,0 +1,5 @@
+# API judge (GroupMemBench used gpt-5). Needs OPENAI_API_KEY in the environment.
+judge:
+  type: llm
+  protocol: groupmembench    # groupmembench | longmemeval | generic
+  chat: {type: openai, model: gpt-5-mini}

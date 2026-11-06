@@ -1,0 +1,12 @@
+# CPU-only end-to-end check (seconds): every baseline on the toy fixture.
+base: ../defaults.yaml
+name: smoke_toy
+dataset: {name: jarvis, path: tests/fixtures/toy_team.json}
+retrieval: {budget_tokens: 120, max_items: 4}
+memory: {type: bm25}
+arms:
+  - {name: recency,   set: {memory: {type: recency}}}
+  - {name: bm25,      set: {memory: {type: bm25}}}
+  - {name: dense,     set: {memory: {type: dense, embedder: {type: hashing}}}}
+  - {name: hybrid,    set: {memory: {type: hybrid, embedder: {type: hashing}}}}
+  - {name: legacy_v2, set: {memory: {type: legacy_v2}}}
