@@ -64,6 +64,15 @@ class MessageStoreMemory(MemorySystem):
     def _raw_scores(self, query: str) -> np.ndarray:
         raise NotImplementedError
 
+    def query_text(self, query: str, asker: Optional[str]) -> str:
+        return f"{asker} {query}" if (self.query_with_asker and asker) else query
+
+    def prefetch_queries(self, pairs: Sequence[Tuple[str, Optional[str]]]) -> None:
+        """Embed many (query, asker) pairs in one batch; no-op for lexical systems."""
+        emb = getattr(getattr(self, "dense", self), "embedder", None)
+        if emb is not None and pairs:
+            emb.encode_queries([self.query_text(q, a) for q, a in pairs])
+
     def _candidates(self, asker: Optional[str]) -> np.ndarray:
         n = len(self.messages)
         if self.scope == "all" or asker is None:
@@ -85,8 +94,7 @@ class MessageStoreMemory(MemorySystem):
     def rank(self, query: str, asker: Optional[str] = None, now: Optional[float] = None) -> List[Tuple[int, float]]:
         if not self.messages:
             return []
-        q = f"{asker} {query}" if (self.query_with_asker and asker) else query
-        s = self._adjust(self._raw_scores(q), asker, now)
+        s = self._adjust(self._raw_scores(self.query_text(query, asker)), asker, now)
         cand = self._candidates(asker)
         idx = np.nonzero(cand)[0]
         idx = idx[np.argsort(-s[idx], kind="stable")]

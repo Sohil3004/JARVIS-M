@@ -66,6 +66,8 @@ def run(cfg: Dict[str, Any], arm: str = "", progress: bool = True) -> Path:
             mem.reset()
             t0 = time.perf_counter()
             mem.ingest(conv.messages)
+            if hasattr(mem, "prefetch_queries"):
+                mem.prefetch_queries([(q.question, q.asker) for q in qs])
             ingest_s = time.perf_counter() - t0
             for i, q in enumerate(qs):
                 t1 = time.perf_counter()

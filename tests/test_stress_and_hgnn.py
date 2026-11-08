@@ -32,10 +32,8 @@ def test_phenomena_coverage():
             "user_implicit", "abstention", "history"} <= phen
 
 
-torch = pytest.importorskip("torch")
-
-
 def test_hgnn_trains_saves_and_scores(tmp_path):
+    pytest.importorskip("torch")
     from jarvis_m.memory import build_memory
     from jarvis_m.memory.hypergraph.hgnn import HGNNScorer
     from jarvis_m.memory.hypergraph.train import train_hgnn

@@ -2,7 +2,8 @@
 # The HGNN checkpoint is tied to this embedder: train and evaluate with the same one.
 memory:
   type: hypergraph
-  embedder: {type: st, model_name: Qwen/Qwen3-Embedding-0.6B}
+  # fp16 on GPU, inputs capped at 1024 tokens (dense index only), disk cache in cache/embeddings/
+  embedder: {type: st, model_name: Qwen/Qwen3-Embedding-0.6B, batch_size: 16, max_seq_length: 1024}
   extractor: {type: heuristic}
   n_seeds: 30
   max_candidates: 300

@@ -72,3 +72,28 @@ def test_load_dataset_limit(toy, tmp_path):
 
     ds = load_dataset({"name": "jarvis", "path": str(TOY), "limit": 3})
     assert len(ds.questions) == 3
+
+
+def test_disk_embedding_cache(tmp_path):
+    import numpy as np
+
+    from jarvis_m.embeddings import CachedEmbedder, HashingEmbedder, build_embedder
+
+    calls = []
+
+    class Counting(HashingEmbedder):
+        def encode_docs(self, texts):
+            calls.append(len(texts))
+            return super().encode_docs(texts)
+
+    base = Counting(64)
+    c = CachedEmbedder(base, tmp_path / "e.sqlite", "hash64")
+    a = c.encode_docs(["alpha beta", "gamma"])
+    b = c.encode_docs(["gamma", "alpha beta", "delta"])
+    assert calls == [2, 1] and np.allclose(a[0], b[1], atol=1e-3) and c.hits == 2
+    c2 = CachedEmbedder(Counting(64), tmp_path / "e.sqlite", "hash64")  # new process: reads from disk
+    c2.encode_docs(["alpha beta", "gamma", "delta"])
+    assert c2.misses == 0
+    assert np.allclose(c.encode_queries(["q"]), c.encode_queries(["q"]))
+    emb = build_embedder({"type": "hashing", "dim": 32, "disk_cache": str(tmp_path / "h.sqlite")})
+    assert isinstance(emb, CachedEmbedder) and emb.encode_docs(["x y"]).shape == (1, 32)

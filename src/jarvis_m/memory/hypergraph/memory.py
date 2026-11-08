@@ -85,8 +85,7 @@ class HypergraphMemory(HybridMemory):
         return self._scorer
 
     def subgraph(self, query: str, asker: Optional[str] = None, now: Optional[float] = None) -> Subgraph:
-        q = f"{asker} {query}" if (self.query_with_asker and asker) else query
-        raw = self._adjust(self._raw_scores(q), asker, now)
+        raw = self._adjust(self._raw_scores(self.query_text(query, asker)), asker, now)
         lo, hi = float(raw.min()), float(raw.max())
         base_all = (raw - lo) / (hi - lo) if hi > lo else np.zeros_like(raw)
         cand = self._candidates(asker)
@@ -102,8 +101,7 @@ class HypergraphMemory(HybridMemory):
         return sg
 
     def query_embedding(self, query: str, asker: Optional[str]) -> np.ndarray:
-        q = f"{asker} {query}" if (self.query_with_asker and asker) else query
-        return self.dense.embedder.encode_queries([q])[0]
+        return self.dense.embedder.encode_queries([self.query_text(query, asker)])[0]
 
     def node_embeddings(self, nodes: np.ndarray) -> np.ndarray:
         return self.dense.matrix[nodes]

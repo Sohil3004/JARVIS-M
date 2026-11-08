@@ -50,6 +50,8 @@ def build_examples(memory_cfg: Dict[str, Any], datasets: Sequence[Dict[str, Any]
             mem.reset()
             mem.ingest(conv.messages)
             g = mem.graph
+            if hasattr(mem, "prefetch_queries"):
+                mem.prefetch_queries([(q.question, q.asker) for q in qs])
             for q in qs:
                 stats["with_evidence"] += 1
                 sg = mem.subgraph(q.question, q.asker, q.question_time)
