@@ -61,7 +61,10 @@ class MessageStoreMemory(MemorySystem):
         pass
 
     # -- ranking -----------------------------------------------------------
-    def _raw_scores(self, query: str) -> np.ndarray:
+    def _raw_scores(self, query: str, mask: Optional[np.ndarray] = None) -> np.ndarray:
+        """One score per stored message. ``mask`` marks the messages that may be ranked:
+        scores of the others are never used, and systems that rank (rank fusion) must rank
+        the masked messages only, so hidden messages cannot shift visible ones."""
         raise NotImplementedError
 
     def query_text(self, query: str, asker: Optional[str]) -> str:
@@ -94,8 +97,8 @@ class MessageStoreMemory(MemorySystem):
     def rank(self, query: str, asker: Optional[str] = None, now: Optional[float] = None) -> List[Tuple[int, float]]:
         if not self.messages:
             return []
-        s = self._adjust(self._raw_scores(self.query_text(query, asker)), asker, now)
         cand = self._candidates(asker)
+        s = self._adjust(self._raw_scores(self.query_text(query, asker), cand), asker, now)
         idx = np.nonzero(cand)[0]
         idx = idx[np.argsort(-s[idx], kind="stable")]
         return [(int(i), float(s[i])) for i in idx]
@@ -124,7 +127,7 @@ class RecencyWindow(MessageStoreMemory):
 
     name = "recency"
 
-    def _raw_scores(self, query: str) -> np.ndarray:
+    def _raw_scores(self, query: str, mask: Optional[np.ndarray] = None) -> np.ndarray:
         return np.arange(len(self.messages), dtype=np.float64)
 
 
@@ -155,7 +158,7 @@ class BM25Memory(MessageStoreMemory):
     def _on_ingest(self, messages):
         self.index.add([word_tokens(m.text) for m in messages])
 
-    def _raw_scores(self, query: str) -> np.ndarray:
+    def _raw_scores(self, query: str, mask: Optional[np.ndarray] = None) -> np.ndarray:
         return self.index.scores(word_tokens(query))
 
 
@@ -184,9 +187,16 @@ class DenseMemory(MessageStoreMemory):
             self._mat = np.vstack(self._chunks) if self._chunks else np.zeros((0, self.embedder.dim), np.float32)
         return self._mat
 
-    def _raw_scores(self, query: str) -> np.ndarray:
+    def _raw_scores(self, query: str, mask: Optional[np.ndarray] = None) -> np.ndarray:
         q = self.embedder.encode_queries([query])[0]
-        return self.matrix @ q
+        if mask is None or mask.all():
+            return self.matrix @ q
+        # score the visible rows only: the result is then bit-identical to a store that
+        # never held the hidden messages
+        out = np.zeros(len(self.messages), dtype=np.float32)
+        idx = np.nonzero(mask)[0]
+        out[idx] = self.matrix[idx] @ q
+        return out
 
 
 class HybridMemory(MessageStoreMemory):
@@ -211,11 +221,12 @@ class HybridMemory(MessageStoreMemory):
         self.bm25.ingest(messages)
         self.dense.ingest(messages)
 
-    def _raw_scores(self, query: str) -> np.ndarray:
+    def _raw_scores(self, query: str, mask: Optional[np.ndarray] = None) -> np.ndarray:
         n = len(self.messages)
+        idx = np.arange(n) if mask is None else np.nonzero(mask)[0]
         out = np.zeros(n, dtype=np.float64)
-        for w, s in ((self.wb, self.bm25._raw_scores(query)), (self.wd, self.dense._raw_scores(query))):
-            ranks = np.empty(n, dtype=np.int64)
-            ranks[np.argsort(-s, kind="stable")] = np.arange(n)
-            out += w / (self.rrf_k + ranks + 1)
+        for w, s in ((self.wb, self.bm25._raw_scores(query, mask)), (self.wd, self.dense._raw_scores(query, mask))):
+            ranks = np.empty(len(idx), dtype=np.int64)  # ranks among the visible messages only
+            ranks[np.argsort(-s[idx], kind="stable")] = np.arange(len(idx))
+            out[idx] += w / (self.rrf_k + ranks + 1)
         return out

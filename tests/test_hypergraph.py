@@ -5,7 +5,7 @@ from jarvis_m.data.stress import generate, save
 from jarvis_m.extract import HeuristicExtractor
 from jarvis_m.memory import build_memory
 from jarvis_m.memory.hypergraph import Hypergraph
-from jarvis_m.memory.hypergraph.subgraph import FEATURE_NAMES
+from jarvis_m.memory.hypergraph.subgraph import FEATURE_NAMES, FI
 from jarvis_m.types import Message
 
 HG = {"type": "hypergraph", "embedder": {"type": "hashing"}}
@@ -174,7 +174,7 @@ def test_speaker_names_frequent_entities_and_dates_are_not_linking_evidence():
     filler = [("A", f"note {i} about Grafana and the Kubernetes dashboard") for i in range(8)]
     g = _graph_msgs(filler + [("A", "We decided to go with Grafana Loki for logs."),
                               ("B", "Agreed: picked Grafana Cloud for the billing alerts.")])
-    assert g.entity_df["grafana"] >= 5 and g.token_df["grafana"] >= 5 and not any(g.superseded)
+    assert g.link_df("grafana") >= 5 and not any(g.superseded)
     s = g.stats()
     assert s["superseded_fraction"] == 0.0 and s["chains_per_100_messages"] > 0
 
@@ -207,10 +207,10 @@ def test_own_state_bonus_only_in_multi_party_chats_and_no_asker_bonus():
     from jarvis_m.memory.hypergraph.subgraph import Subgraph, build_subgraph, fixed_propagation
 
     F = np.zeros((2, len(FEATURE_NAMES)), np.float32)
-    F[:, -1] = 1.0  # first-person question
-    F[0, 3] = F[0, 6] = 1.0  # node 0: the asker's own current commitment
+    F[:, FI["first_person_query"]] = 1.0
+    F[0, FI["is_asker"]] = F[0, FI["is_current"]] = 1.0  # node 0: the asker's own current commitment
     base = np.array([0.5, 0.6], np.float32)
-    F[:, 0] = base
+    F[:, FI["base"]] = base
 
     def top(n_participants):
         return int(np.argmax(fixed_propagation(Subgraph(np.arange(2), F, base, [], n_participants=n_participants), {})))
@@ -218,7 +218,7 @@ def test_own_state_bonus_only_in_multi_party_chats_and_no_asker_bonus():
     assert top(3) == 0  # group chat: "what am I responsible for?" pulls the asker's own state up
     assert top(2) == 1 and top(0) == 1  # user<->assistant chat: ranking is untouched
     F2 = F.copy()
-    F2[:, -1] = F2[0, 6] = 0.0  # plain question; node 0 is just the asker's message
+    F2[:, FI["first_person_query"]] = F2[0, FI["is_current"]] = 0.0  # plain question; node 0 is just the asker's message
     assert np.allclose(fixed_propagation(Subgraph(np.arange(2), F2, base, []), {}), base)  # asker_bonus is 0
 
     def count(turns):

@@ -7,5 +7,7 @@ memory:
   extractor: {type: heuristic}
   n_seeds: 30
   max_candidates: 300
-  max_edge_size: 60
+  max_edge_size: 60      # per hyperedge, counted inside the candidate set
+  version_keep_k: 5      # long version chains keep current + first + last K
+  link_df_window: 500    # linking evidence: document frequency over the last N messages of the channel
   scorer: {type: fixed}

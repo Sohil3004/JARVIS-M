@@ -6,7 +6,7 @@ and uses records only to add structure (entity, version-chain hyperedges).
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any, Dict, Optional, Tuple
 
 MODALITIES = (
@@ -23,6 +23,16 @@ MODALITIES = (
 STATEFUL = frozenset({"decision", "commitment", "done", "negated", "blocker"})
 
 
+def holder_key(holder: str) -> str:
+    """Normal form of a holder for slot keys. ``speaker:Priya`` and ``person:Priya`` are the
+    same holder (``p:priya``); ``group:<scope>`` is kept; no holder is the empty string."""
+    kind, sep, name = (holder or "").partition(":")
+    name = name.strip().lower()
+    if sep and kind.strip().lower() in ("speaker", "person"):
+        return f"p:{name}"
+    return (holder or "").strip().lower()
+
+
 @dataclass(frozen=True)
 class StateRecord:
     msg_id: str
@@ -36,10 +46,15 @@ class StateRecord:
     replaces_cue: bool = False  # message signals replacement ("instead", "scrap", "moved to")
     explicit_key: bool = False  # subject/attribute normalised by an LLM: chain on exact key
     meta: Dict[str, Any] = field(default_factory=dict)
+    # Whose fact this is: a participant (``speaker:<name>``), a group (``group:<scope>``, for
+    # "we / our / the team") or a named third party (``person:<name>``). Slots never chain
+    # across holders. Empty = not known (records extracted before holders existed).
+    holder: str = ""
 
     @property
     def key(self) -> str:
-        return f"{self.subject.lower().strip()}|{self.attribute.lower().strip()}"
+        """Slot key: ``holder|subject|attribute``."""
+        return f"{holder_key(self.holder)}|{self.subject.lower().strip()}|{self.attribute.lower().strip()}"
 
     def to_json(self) -> Dict[str, Any]:
         d = asdict(self)
@@ -51,6 +66,9 @@ class StateRecord:
         d = dict(d)
         d["entities"] = tuple(d.get("entities", ()))
         return StateRecord(**d)
+
+    def with_holder(self, holder: str) -> StateRecord:
+        return replace(self, holder=holder)
 
     def render(self) -> str:
         who = f" ({self.speaker})" if self.speaker else ""

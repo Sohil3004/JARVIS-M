@@ -125,6 +125,44 @@ def topic_phrase(text: str, ents: Sequence[str] = ()) -> str:
     return ""
 
 
+# ---- holders: whose fact is it?
+# Work state belongs to the group even when stated in the first person: "I'll take load
+# testing" sets the task's owner, and the next owner must be able to supersede it.
+GROUP_ATTRIBUTES = frozenset({"owner", "status"})
+_MY = re.compile(r"\b(?:my|mine|myself)\b", re.I)
+_WE = re.compile(r"\b(?:we|we're|we'll|we've|we'd|our|ours|us|let's|lets)\b", re.I)
+_I = re.compile(r"\b(?:i|i'm|i've|i'll|i'd|me|im|ive)\b", re.I)
+_NAMED = re.compile(
+    r"\b([A-Z][a-z]+)(?:'s\b|’s\b| (?:is|was|will|has|had|wants|likes|loves|prefers|owns|lives|moved|got|needs|works)\b)")
+
+
+def named_holders(text: str, speaker: str = "") -> Tuple[str, ...]:
+    """Capitalised names used as possessor or subject ("Priya's laptop", "Chen prefers ..."):
+    holder *candidates*. The graph keeps one only if it is a known participant, so a tool
+    name ("Kafka is ...") never becomes a holder."""
+    out = []
+    for m in _NAMED.finditer(text or ""):
+        name = m.group(1)
+        if name.lower() not in _CAP_STOP and name != speaker and name not in out:
+            out.append(name)
+    return tuple(out)
+
+
+def holder_of(text: str, speaker: str, channel: str, attribute: str) -> str:
+    """``speaker:<name>`` for a first-person-singular statement, ``group:<channel>`` for a
+    first-person-plural statement, one with no pronoun, and all work state (owner, status)."""
+    group = f"group:{channel or 'default'}"
+    if attribute in GROUP_ATTRIBUTES:
+        return group
+    if _MY.search(text):
+        return f"speaker:{speaker}"
+    if _WE.search(text):
+        return group
+    if _I.search(text):
+        return f"speaker:{speaker}"
+    return group
+
+
 def _clause(text: str, m: re.Match, width: int = 120) -> str:
     start = max(0, text.rfind(".", 0, m.start()) + 1)
     end = text.find(".", m.end())
@@ -187,7 +225,9 @@ class HeuristicExtractor:
         else:
             phrase = topic_phrase(text, ents)
             subject = f"{m.channel}/{phrase}" if phrase else str(m.channel or "")
+        named = named_holders(text, m.speaker) if attribute not in GROUP_ATTRIBUTES else ()
         return [StateRecord(
             msg_id=m.id, speaker=m.speaker, modality=modality, attribute=attribute, value=value,
             subject=subject, entities=ents, timestamp=m.timestamp, replaces_cue=replaces,
+            holder=holder_of(text, m.speaker, m.channel, attribute), meta={"named": list(named)} if named else {},
         )]

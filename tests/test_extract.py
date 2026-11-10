@@ -45,7 +45,7 @@ def test_heuristic_entities_topic_and_chitchat():
     assert topic_phrase("Render it is for the backend hosting.") == "backend hosting"
     assert HeuristicExtractor().extract_one(_m("lol ok")) == []
     r = HeuristicExtractor().extract_one(_m("Change of plan: we switched the CI system to GitLab CI instead."))[0]
-    assert r.replaces_cue and r.key == "eng/ci system|decision"
+    assert r.replaces_cue and r.key == "group:eng|eng/ci system|decision" and r.holder == "group:eng"
     gmb = HeuristicExtractor().extract_one(_m("We decided to expand scope.", meta={"phase_name": "UX Approval"}))[0]
     assert gmb.subject == "UX Approval"  # visible phase metadata wins
 

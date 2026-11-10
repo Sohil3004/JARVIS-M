@@ -61,12 +61,15 @@ def parse_records(raw: str, by_id: Dict[str, Message]) -> List[StateRecord]:
             mod = "info"
         ents = it.get("entities") or []
         ents = tuple(str(e).lower().strip() for e in ents if str(e).strip()) if isinstance(ents, list) else ()
+        holder = str(it.get("holder") or "").strip()
+        if holder.partition(":")[0] not in ("speaker", "group", "person") or not holder.partition(":")[2].strip():
+            holder = f"group:{msg.channel or 'default'}"  # no (valid) holder from the model: a shared fact
         out.append(StateRecord(
             msg_id=mid, speaker=msg.speaker, modality=mod,
             attribute=str(it.get("attribute", "info")).lower().strip() or "info",
             value=str(it.get("value", ""))[:200], subject=str(it.get("subject", "")).lower().strip()[:80],
             entities=ents or entities(msg.text), timestamp=msg.timestamp,
-            replaces_cue=bool(it.get("replaces", False)), explicit_key=True,
+            replaces_cue=bool(it.get("replaces", False)), explicit_key=True, holder=holder,
         ))
     return out
 
