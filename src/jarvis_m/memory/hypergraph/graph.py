@@ -99,6 +99,7 @@ class Hypergraph:
         self.state_roles = None if state_roles is None else set(state_roles)
         self.assistant_confirmation = assistant_confirmation
         self._speaker_names: Set[str] = set()  # lowercased names + their tokens: never linking evidence
+        self.participants: Set[str] = set()  # distinct non-assistant speakers (multi-party if >= 3)
         self.entity_df: Dict[str, int] = {}  # messages mentioning each entity (and each entity token)
         self.token_df: Dict[str, int] = {}
         self._pending: Dict[str, List[List]] = {}  # scope -> [[node, records, messages left]]
@@ -174,6 +175,8 @@ class Hypergraph:
             self.chain_of.append(-1)
             self.modality.append(next((r.modality for r in recs if r.modality in STATEFUL), recs[0].modality if recs else "info"))
             self._note_speaker(m.speaker)
+            if state_role(m) != ASSISTANT:
+                self.participants.add(m.speaker)
             self._add_structural(v, m)
             ents = {e for r in recs for e in r.entities}
             for ent in ents:

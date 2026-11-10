@@ -124,10 +124,13 @@ the table above. Mean superseded fraction per conversation graph:
 
 Fixed-propagation MRR went 0.267 → 0.275 on LoCoMo and 0.429 → 0.491 on the LongMemEval
 test split. StateBench dev did not change (0.777) and StateBench test went 0.752 → 0.755.
-Fixed propagation is still below seeds on both real sets. On LongMemEval the remaining
-single-session-assistant loss comes from the fixed scorer's asker bonuses (`asker="user"`
-boosts user turns over the assistant turn that holds the answer): without them it scores
-0.668, against 0.599 for seeds and 0.264 for default fixed. The HGNN checkpoints need
+The fixed scorer's asker bonus boosted every user turn over the assistant turn that
+holds the answer (`asker="user"` on LongMemEval). It is now off (`asker_bonus: 0`), and
+the own-state bonus only applies to chats with ≥ 3 distinct non-assistant speakers.
+Fixed-propagation MRR from that change: StateBench dev 0.777 → 0.821, StateBench test
+0.755 → 0.787, LoCoMo 0.275 (no change), LongMemEval test 0.491 → 0.536 (single-session-assistant
+0.264 → 0.668, above seeds at 0.599). Fixed is still below seeds on both real sets overall:
+on LongMemEval it loses on knowledge-update (0.64 vs 0.78 for seeds). The HGNN checkpoints need
 retraining on the new split and graph before their real-data numbers mean anything;
 `jarvis-eval rank-eval configs/eval/rank_real.yaml --checkpoint …` produces the table.
 

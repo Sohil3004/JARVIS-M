@@ -32,6 +32,7 @@ class Subgraph:
     edges: List[tuple] = field(default_factory=list)  # (type, local idx array)
     historical: bool = False
     labels: Optional[np.ndarray] = None  # (n,) 1 for gold evidence (training only)
+    n_participants: int = 0  # distinct non-assistant speakers in the conversation (not a feature)
 
     def incidence(self):
         """(node_local, edge_idx, edge_type_idx) arrays for scatter ops."""
@@ -123,7 +124,7 @@ def build_subgraph(
             idx = np.array([loc[u] for u in he.nodes if u in loc], np.int64)
             if len(idx) >= 2:
                 edges.append((he.type, idx))
-    return Subgraph(nodes, F, base, edges, hist)
+    return Subgraph(nodes, F, base, edges, hist, n_participants=len(g.participants))
 
 
 def fixed_propagation(
@@ -133,8 +134,9 @@ def fixed_propagation(
     iters: int = 1,
     superseded_penalty: float = 0.35,
     version_pull: float = 0.95,
-    asker_bonus: float = 0.1,
+    asker_bonus: float = 0.0,
     own_state_bonus: float = 0.5,
+    min_participants: int = 3,
 ) -> np.ndarray:
     """Fixed (unlearned) hypergraph scoring.
 
@@ -144,6 +146,11 @@ def fixed_propagation(
     Additive (not a convex mix) so strong direct hits are never smoothed away.
     Then version logic: current values are pulled up to their best chain-mate,
     superseded values are demoted (skipped for historical queries).
+
+    ``asker_bonus`` is off by default: in user<->assistant chats it boosts every user
+    turn over the assistant turn that holds the answer. ``own_state_bonus`` ("what am I
+    responsible for?") only applies to multi-party chats (``min_participants`` distinct
+    non-assistant speakers).
     """
     base = sg.base.astype(np.float64)
     s = base.copy()
@@ -172,6 +179,7 @@ def fixed_propagation(
             pulled[cur] = np.maximum(pulled[cur], version_pull * top)
         s = np.where(f[:, 5] > 0, pulled * superseded_penalty, pulled)
     s = s + asker_bonus * np.maximum(f[:, 3], f[:, 4]) * (s > 0)
-    # first-person questions: the asker's own current commitments/decisions
-    s = s + own_state_bonus * f[:, -1] * f[:, 3] * f[:, 6]
+    # first-person questions in group chats: the asker's own current commitments/decisions
+    if sg.n_participants >= min_participants:
+        s = s + own_state_bonus * f[:, -1] * f[:, 3] * f[:, 6]
     return s

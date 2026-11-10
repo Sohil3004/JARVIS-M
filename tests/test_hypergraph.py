@@ -201,3 +201,29 @@ def test_confirmed_assistant_suggestion_becomes_current():
     assert not _graph_msgs(late).superseded[0]  # outside the 2-message window
     other = turns[:2] + [("user", "Sounds good!", "s2")]
     assert not _graph_msgs(other).superseded[0]  # confirmation must come in the same session
+
+
+def test_own_state_bonus_only_in_multi_party_chats_and_no_asker_bonus():
+    from jarvis_m.memory.hypergraph.subgraph import Subgraph, build_subgraph, fixed_propagation
+
+    F = np.zeros((2, len(FEATURE_NAMES)), np.float32)
+    F[:, -1] = 1.0  # first-person question
+    F[0, 3] = F[0, 6] = 1.0  # node 0: the asker's own current commitment
+    base = np.array([0.5, 0.6], np.float32)
+    F[:, 0] = base
+
+    def top(n_participants):
+        return int(np.argmax(fixed_propagation(Subgraph(np.arange(2), F, base, [], n_participants=n_participants), {})))
+
+    assert top(3) == 0  # group chat: "what am I responsible for?" pulls the asker's own state up
+    assert top(2) == 1 and top(0) == 1  # user<->assistant chat: ranking is untouched
+    F2 = F.copy()
+    F2[:, -1] = F2[0, 6] = 0.0  # plain question; node 0 is just the asker's message
+    assert np.allclose(fixed_propagation(Subgraph(np.arange(2), F2, base, []), {}), base)  # asker_bonus is 0
+
+    def count(turns):
+        g = _graph_msgs(turns)
+        return build_subgraph(g, np.ones(len(g)), [0], "user", "what am I doing?", None, {}).n_participants
+
+    assert count([("user", "hi"), ("assistant", "hello"), ("user", "ok")]) == 1
+    assert count([("Ann", "hi"), ("Bob", "hey"), ("Cy", "yo"), ("assistant", "hello")]) == 3
