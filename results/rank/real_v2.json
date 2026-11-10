@@ -1,0 +1,230 @@
+{
+  "k": [
+    5
+  ],
+  "checkpoints": [
+    "models/hgnn/hgnn_v1.pt",
+    "models/hgnn/hgnn_v1_nogate.pt"
+  ],
+  "memory": {
+    "type": "hypergraph",
+    "embedder": {
+      "type": "st",
+      "model_name": "Qwen/Qwen3-Embedding-0.6B",
+      "batch_size": 16,
+      "max_seq_length": 1024
+    },
+    "extractor": {
+      "type": "heuristic"
+    },
+    "n_seeds": 30,
+    "max_candidates": 300,
+    "max_edge_size": 60,
+    "scorer": {
+      "type": "fixed"
+    }
+  },
+  "datasets": [
+    {
+      "label": "StateBench test",
+      "config": {
+        "name": "jarvis",
+        "path": "data/stress/statebench_test.json"
+      },
+      "stats": {
+        "questions": 2834,
+        "with_evidence": 2667,
+        "evidence_in_candidates": 2665,
+        "candidate_recall": 0.9992500937382827,
+        "superseded_fraction": 0.033488647472581325,
+        "chains_per_100_messages": 13.576906369158017
+      },
+      "scorers": {
+        "seeds": {
+          "n": 2665,
+          "R@5": 0.9347091932457786,
+          "MRR": 0.7613534105441888,
+          "per_category_mrr": {
+            "knowledge_update": 0.7140262643196423,
+            "multi_hop": 0.6519823788546255,
+            "single_hop": 0.9880952380952381,
+            "temporal": 0.9375,
+            "user_implicit": 0.1616019174683992
+          }
+        },
+        "fixed": {
+          "n": 2665,
+          "R@5": 0.9397748592870544,
+          "MRR": 0.7991957995361632,
+          "per_category_mrr": {
+            "knowledge_update": 0.7450405141100865,
+            "multi_hop": 0.9911894273127754,
+            "single_hop": 0.9533271342663028,
+            "temporal": 0.9209770114942529,
+            "user_implicit": 0.23994905021438317
+          }
+        },
+        "hgnn:hgnn_v1": {
+          "n": 2665,
+          "R@5": 0.9984990619136961,
+          "MRR": 0.9331278477619942,
+          "per_category_mrr": {
+            "knowledge_update": 0.9138027381950264,
+            "multi_hop": 0.9552129221732745,
+            "single_hop": 0.9621598639455782,
+            "temporal": 0.9053263546798029,
+            "user_implicit": 0.9406841339155749
+          }
+        },
+        "hgnn:hgnn_v1_nogate": {
+          "n": 2665,
+          "R@5": 0.9971857410881801,
+          "MRR": 0.939274965166641,
+          "per_category_mrr": {
+            "knowledge_update": 0.9350377200335289,
+            "multi_hop": 0.9140969162995595,
+            "single_hop": 0.9650297619047619,
+            "temporal": 0.9252873563218391,
+            "user_implicit": 0.9123047256292487
+          }
+        }
+      }
+    },
+    {
+      "label": "LoCoMo",
+      "config": {
+        "name": "locomo",
+        "categories": [
+          "single_hop",
+          "multi_hop",
+          "temporal",
+          "open_domain"
+        ]
+      },
+      "stats": {
+        "questions": 1540,
+        "with_evidence": 1536,
+        "evidence_in_candidates": 1486,
+        "candidate_recall": 0.9674479166666666,
+        "superseded_fraction": 0.004509756971350409,
+        "chains_per_100_messages": 9.53729154892563
+      },
+      "scorers": {
+        "seeds": {
+          "n": 1486,
+          "R@5": 0.3626834585320099,
+          "MRR": 0.2981847496520177,
+          "per_category_mrr": {
+            "multi_hop": 0.1683896496384154,
+            "open_domain": 0.1705889048946116,
+            "single_hop": 0.3175850514836927,
+            "temporal": 0.3961009329300824
+          }
+        },
+        "fixed": {
+          "n": 1486,
+          "R@5": 0.3411875923401093,
+          "MRR": 0.27591770361865586,
+          "per_category_mrr": {
+            "multi_hop": 0.16113064123460624,
+            "open_domain": 0.16698203601709175,
+            "single_hop": 0.2898028966298236,
+            "temporal": 0.37023974266871085
+          }
+        },
+        "hgnn:hgnn_v1": {
+          "n": 1486,
+          "R@5": 0.41375056109710784,
+          "MRR": 0.3327065918889135,
+          "per_category_mrr": {
+            "multi_hop": 0.21779150988022292,
+            "open_domain": 0.2416526155691043,
+            "single_hop": 0.34685160524076747,
+            "temporal": 0.421670150651225
+          }
+        },
+        "hgnn:hgnn_v1_nogate": {
+          "n": 1486,
+          "R@5": 0.4061633449544175,
+          "MRR": 0.3237696500887623,
+          "per_category_mrr": {
+            "multi_hop": 0.22831374813811145,
+            "open_domain": 0.2554865791446203,
+            "single_hop": 0.3339039365620685,
+            "temporal": 0.4000354845655277
+          }
+        }
+      }
+    },
+    {
+      "label": "LongMemEval-S test (stratified 20%)",
+      "config": {
+        "name": "longmemeval",
+        "variant": "s_cleaned",
+        "split": "test"
+      },
+      "stats": {
+        "questions": 102,
+        "with_evidence": 94,
+        "evidence_in_candidates": 94,
+        "candidate_recall": 1.0,
+        "superseded_fraction": 0.010396265282835028,
+        "chains_per_100_messages": 10.249063665108249
+      },
+      "scorers": {
+        "seeds": {
+          "n": 94,
+          "R@5": 0.7789007106677015,
+          "MRR": 0.7335214201734852,
+          "per_category_mrr": {
+            "knowledge-update": 0.8444444444444446,
+            "multi-session": 0.7083003952569169,
+            "single-session-assistant": 0.6888888888888888,
+            "single-session-preference": 0.417020202020202,
+            "single-session-user": 0.8958333333333334,
+            "temporal-reasoning": 0.7105634561516914
+          }
+        },
+        "fixed": {
+          "n": 94,
+          "R@5": 0.743439717654218,
+          "MRR": 0.6579962686866018,
+          "per_category_mrr": {
+            "knowledge-update": 0.7333333333333333,
+            "multi-session": 0.5790733421168204,
+            "single-session-assistant": 0.6746527777777778,
+            "single-session-preference": 0.32272256728778465,
+            "single-session-user": 0.8773809523809524,
+            "temporal-reasoning": 0.6527777777777778
+          }
+        },
+        "hgnn:hgnn_v1": {
+          "n": 94,
+          "R@5": 0.8200354623667737,
+          "MRR": 0.7718591691995947,
+          "per_category_mrr": {
+            "knowledge-update": 0.8333333333333333,
+            "multi-session": 0.7536231884057972,
+            "single-session-assistant": 0.675595238095238,
+            "single-session-preference": 0.31666666666666665,
+            "single-session-user": 0.9027777777777778,
+            "temporal-reasoning": 0.8415750915750915
+          }
+        },
+        "hgnn:hgnn_v1_nogate": {
+          "n": 94,
+          "R@5": 0.7884751786576941,
+          "MRR": 0.7637259892249681,
+          "per_category_mrr": {
+            "knowledge-update": 0.88,
+            "multi-session": 0.8231884057971015,
+            "single-session-assistant": 0.7043650793650794,
+            "single-session-preference": 0.32293523469994057,
+            "single-session-user": 0.8392857142857143,
+            "temporal-reasoning": 0.7382880277617119
+          }
+        }
+      }
+    }
+  ]
+}
