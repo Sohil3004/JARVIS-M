@@ -60,6 +60,11 @@ _DEADLINE = re.compile(r"\b(?:deadline|due|by|release|launch|ship|target|eta|pus
                        r"moved? (?:it )?to|works better)\b", re.I)
 
 
+def is_time_expression(entity: str) -> bool:
+    """A date / time / day entity ("april 2", "tuesday 5 pm", "q3"): a value, not a topic."""
+    return bool(_TIME.fullmatch(entity.strip()))
+
+
 def entities(text: str) -> Tuple[str, ...]:
     out: List[str] = []
     seen = set()
@@ -137,7 +142,9 @@ class HeuristicExtractor:
 
     def extract_one(self, m: Message) -> List[StateRecord]:
         text = m.text or ""
-        ents = entities(text)
+        # the speaker's own name is who said it, not what it is about
+        me = (m.speaker or "").lower()
+        ents = tuple(e for e in entities(text) if e != me)
         modality, hit = "info", None
         for name, pat in _CUES:
             hit = pat.search(text)

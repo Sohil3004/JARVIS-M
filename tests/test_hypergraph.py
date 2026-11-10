@@ -144,3 +144,60 @@ def test_missing_artifacts_fail_fast(tmp_path):
     pytest.importorskip("torch")
     with pytest.raises(FileNotFoundError, match="train-hgnn"):
         build_memory({**HG, "scorer": {"type": "hgnn", "checkpoint": str(tmp_path / "nope.pt")}})
+
+
+def _graph_msgs(turns, **gkw):
+    """turns: (speaker, text) or (speaker, text, session); one channel, like LoCoMo / LongMemEval."""
+    msgs = [Message(id=f"m{i}", speaker=t[0], text=t[1], timestamp=float(i * 60),
+                    session_id=t[2] if len(t) > 2 else "s1") for i, t in enumerate(turns)]
+    by = {}
+    for r in HeuristicExtractor().extract(msgs):
+        by.setdefault(r.msg_id, []).append(r)
+    g = Hypergraph(**gkw)
+    g.add(msgs, by)
+    return g
+
+
+def test_speaker_names_frequent_entities_and_dates_are_not_linking_evidence():
+    # two unrelated decisions whose only shared entity token is the addressee's name
+    g = _graph_msgs([("Melanie", "How was your week?"),
+                     ("Caroline", "Great, thanks Melanie! I decided to adopt a puppy from the shelter."),
+                     ("Melanie", "So cool!"),
+                     ("Caroline", "Thanks Melanie, I picked the blue paint for my art show.")])
+    assert g.chain_of[1] >= 0 and g.chain_of[3] >= 0 and not any(g.superseded)
+    assert not any(e.type == "entity" and e.key == "melanie" for e in g.edges)
+    # a date shared by two unrelated decisions is a value, not a topic
+    g = _graph_msgs([("A", "We decided to visit Grandma on May 5."),
+                     ("B", "I chose the blue dress for the party on May 5.")])
+    assert not any(g.superseded)
+    # an entity in most messages links nothing once it is frequent
+    filler = [("A", f"note {i} about Grafana and the Kubernetes dashboard") for i in range(8)]
+    g = _graph_msgs(filler + [("A", "We decided to go with Grafana Loki for logs."),
+                              ("B", "Agreed: picked Grafana Cloud for the billing alerts.")])
+    assert g.entity_df["grafana"] >= 5 and g.token_df["grafana"] >= 5 and not any(g.superseded)
+    s = g.stats()
+    assert s["superseded_fraction"] == 0.0 and s["chains_per_100_messages"] > 0
+
+
+def test_assistant_suggestion_does_not_supersede_user_decision():
+    turns = [("user", "We decided to go with PostgreSQL for the billing database."),
+             ("assistant", "Actually, let's switch the billing database to MongoDB instead."),
+             ("user", "Thanks, what about backups?")]
+    g = _graph_msgs(turns)
+    assert not g.superseded[0] and g.chain_of[1] == -1
+    assert any(e.type == "entity" and 1 in e.nodes for e in g.edges)  # still a node with entity edges
+    everyone = _graph_msgs(turns, state_roles=None)  # old behaviour: anyone changes state
+    assert everyone.superseded[0] and everyone.current_of(0) == 1
+
+
+def test_confirmed_assistant_suggestion_becomes_current():
+    turns = [("user", "We decided to go with PostgreSQL for the billing database."),
+             ("assistant", "Actually, let's switch the billing database to MongoDB instead."),
+             ("user", "Sounds good!")]
+    g = _graph_msgs(turns)
+    assert g.superseded[0] and g.current_of(0) == 1 and g.chain_of[2] == -1
+    assert not _graph_msgs(turns, assistant_confirmation=False).superseded[0]
+    late = turns[:2] + [("user", "hmm"), ("user", "something else entirely"), ("user", "sounds good")]
+    assert not _graph_msgs(late).superseded[0]  # outside the 2-message window
+    other = turns[:2] + [("user", "Sounds good!", "s2")]
+    assert not _graph_msgs(other).superseded[0]  # confirmation must come in the same session

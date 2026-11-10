@@ -7,6 +7,7 @@
     jarvis-eval data make-stress --split train --n 300 [--seed 0] [--out data/stress/statebench_train.json]
     jarvis-eval extract configs/exp/<exp>.yaml --extractor configs/models/extractor_qwen3_4b_4bit_hf.yaml
     jarvis-eval train-hgnn configs/train/hgnn_statebench_lme.yaml
+    jarvis-eval rank-eval configs/eval/rank_real.yaml [--checkpoint models/hgnn/hgnn_v1.pt ...] [--k 5 10]
     jarvis-eval data info configs/exp/gmb_baselines.yaml
 """
 
@@ -64,6 +65,14 @@ def main(argv=None) -> int:
     th.add_argument("config")
     th.add_argument("--set", dest="overrides", action="append", default=[], metavar="KEY=VALUE")
 
+    re_ = sub.add_parser("rank-eval", help="ranking tables (R@k, MRR) for seeds / fixed / HGNN checkpoints")
+    re_.add_argument("config", help="yaml with `memory:` and `datasets:` (each with an optional `label`)")
+    re_.add_argument("--checkpoint", action="append", default=[], metavar="PATH", help="HGNN checkpoint (repeatable)")
+    re_.add_argument("--k", type=int, nargs="+", default=None, help="cutoffs for R@k (default 5 10)")
+    re_.add_argument("--out", default=None, help="markdown path (default results/rank/<config>.md); JSON next to it")
+    re_.add_argument("--device", default="cpu")
+    re_.add_argument("--set", dest="overrides", action="append", default=[], metavar="KEY=VALUE")
+
     a = ap.parse_args(argv)
 
     if a.cmd == "run":
@@ -99,6 +108,16 @@ def main(argv=None) -> int:
         from .memory.hypergraph.train import train_hgnn
 
         train_hgnn(apply_overrides(load_config(a.config), a.overrides))
+        return 0
+
+    if a.cmd == "rank-eval":
+        from .config import apply_overrides, load_config
+        from .eval.rank_eval import rank_eval, to_markdown, write_report
+
+        res = rank_eval(apply_overrides(load_config(a.config), a.overrides), a.checkpoint, a.k, a.device)
+        out = write_report(res, a.out or Path("results/rank") / f"{Path(a.config).stem}.md")
+        print(to_markdown(res))
+        print(f"[rank-eval] wrote {out} and {out.with_suffix('.json')}")
         return 0
 
     if a.cmd == "report":

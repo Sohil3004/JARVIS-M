@@ -122,7 +122,14 @@ jarvis-eval train-hgnn configs/train/hgnn_statebench_lme.yaml --set model.layers
 jarvis-eval run   configs/exp/statebench_hypergraph.yaml
 jarvis-eval judge runs/statebench_hypergraph --judge configs/models/judge_qwen3_8b_4bit_hf.yaml
 jarvis-eval report runs/statebench_hypergraph --baseline hybrid
+# ranking tables (no reader/judge): seeds, fixed and each checkpoint on StateBench test,
+# LoCoMo and the held-out stratified LongMemEval split -> results/rank/rank_real.{md,json}
+jarvis-eval data fetch locomo
+jarvis-eval rank-eval configs/eval/rank_real.yaml --checkpoint models/hgnn/hgnn_v1.pt --checkpoint models/hgnn/hgnn_v1_mlp.pt
 ```
+
+The HGNN trains on `longmemeval` with `split: train` (a stratified, hash-based 80% per
+question type) and `rank-eval` reports on `split: test`, so the two never overlap.
 
 Arms that need an artefact you have not built yet (HGNN checkpoint, extraction cache)
 fail fast; run the rest with `--arm`. See [docs/HYPERGRAPH.md](docs/HYPERGRAPH.md) for the

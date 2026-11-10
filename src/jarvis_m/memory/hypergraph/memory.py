@@ -36,12 +36,18 @@ class HypergraphMemory(HybridMemory):
         scorer: Optional[Dict[str, Any]] = None,
         state_header: bool = False,
         header_share: float = 0.25,
+        max_link_df: float = 0.02,
+        state_roles: Optional[Sequence[Optional[str]]] = ("user", "human", None),
+        assistant_confirmation: bool = True,
         **kw,
     ) -> None:
         super().__init__(**kw)
         self.extractor_cfg = extractor or {"type": "heuristic"}
         self.extractor = build_extractor(self.extractor_cfg)
-        self.graph_kw = dict(episode_gap_minutes=episode_gap_minutes, max_episode=max_episode, edge_types=edge_types)
+        # state_roles: who may change slot state (None = everyone); the default excludes assistant turns
+        self.graph_kw = dict(episode_gap_minutes=episode_gap_minutes, max_episode=max_episode, edge_types=edge_types,
+                             max_link_df=max_link_df, assistant_confirmation=assistant_confirmation,
+                             state_roles=None if state_roles is None else tuple(state_roles))
         self.edge_types = tuple(edge_types)
         self.graph = Hypergraph(**self.graph_kw)
         self.n_seeds, self.max_candidates, self.max_edge_size = n_seeds, max_candidates, max_edge_size

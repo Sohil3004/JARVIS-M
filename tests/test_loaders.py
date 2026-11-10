@@ -67,6 +67,30 @@ def test_longmemeval(tmp_path, write_json):
     assert q.question_time > ds.conversations["q1_abs"].messages[-1].timestamp
 
 
+def test_longmemeval_stratified_split(write_json):
+    types = ["multi-session", "knowledge-update", "single-session-assistant", "single-session-user", "temporal-reasoning"]
+    sess = [[{"role": "user", "content": "I moved to Paris", "has_answer": True}, {"role": "assistant", "content": "Nice"}]]
+    # sorted by type, like the real file: a `limit:` would never reach the later types
+    raw = [{"question_id": f"{t}-{i}", "question_type": t, "question": "Where?", "answer": "Paris",
+            "question_date": "2023/05/30 (Tue) 10:00", "haystack_session_ids": ["s1"],
+            "haystack_dates": ["2023/05/20 (Sat) 02:21"], "haystack_sessions": sess}
+           for t in types for i in range(7 + 3 * types.index(t))]
+    p = str(write_json("lme.json", raw))
+    tr, te = load_longmemeval(p, split="train"), load_longmemeval(p, split="test")
+    tr_ids, te_ids = {q.id for q in tr.questions}, {q.id for q in te.questions}
+    assert not tr_ids & te_ids and tr_ids | te_ids == {e["question_id"] for e in raw}
+    for t in types:
+        n = sum(e["question_type"] == t for e in raw)
+        assert {q.category for q in tr.questions} >= {t} and {q.category for q in te.questions} >= {t}
+        assert sum(q.category == t for q in te.questions) == -(-n // 5)  # ceil(0.2 * n)
+    assert te_ids == {q.id for q in load_longmemeval(p, split="test").questions}  # deterministic
+    assert te_ids != {q.id for q in load_longmemeval(p, split="test", split_seed=1).questions}
+    # a category filter does not move questions across the split
+    ku = load_longmemeval(p, split="test", categories=["knowledge-update"])
+    assert {q.id for q in ku.questions} == {i for i in te_ids if i.startswith("knowledge-update")}
+    assert set(te.conversations) == te_ids and len(load_longmemeval(p).questions) == len(raw)
+
+
 def test_load_dataset_limit(toy, tmp_path):
     from tests.conftest import TOY
 

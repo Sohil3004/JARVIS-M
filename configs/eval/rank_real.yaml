@@ -1,0 +1,10 @@
+# Ranking tables on synthetic + real data (no reader / judge):
+#   jarvis-eval data make-stress --split test --n 300 ; jarvis-eval data fetch locomo ; jarvis-eval data fetch longmemeval
+#   jarvis-eval rank-eval configs/eval/rank_real.yaml --checkpoint models/hgnn/hgnn_v1.pt
+# Use the embedder the checkpoints were trained with (hypergraph_base.yaml).
+base: ../hypergraph_base.yaml
+k: [5, 10]
+datasets:
+  - {label: StateBench test, name: jarvis, path: data/stress/statebench_test.json}
+  - {label: LoCoMo, name: locomo, categories: [single_hop, multi_hop, temporal, open_domain]}
+  - {label: LongMemEval-S test (stratified 20%), name: longmemeval, variant: s_cleaned, split: test}

@@ -10,7 +10,7 @@ name: hgnn_v1
 output: models/hgnn/hgnn_v1.pt
 train_data:
   - {name: jarvis, path: data/stress/statebench_train.json}
-  - {name: longmemeval, variant: s_cleaned, limit: 400}    # held-out remainder is not used for eval here
+  - {name: longmemeval, variant: s_cleaned, split: train}  # stratified 80%; `split: test` is held out (rank-eval)
 dev_data:
   - {name: jarvis, path: data/stress/statebench_dev.json}
 model: {hidden: 128, layers: 2, gating: true, dropout: 0.1}

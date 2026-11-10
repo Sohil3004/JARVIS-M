@@ -73,6 +73,64 @@ What this says so far:
    hybrid by +2.3 accuracy points (McNemar p ≈ 1e-13); stale-answer rate 0.353 → 0.320;
    legacy v2 retrieves gold evidence for 31% of questions vs 92% for hybrid.
 
+## Real-data transfer
+
+The learned scorer did not transfer from StateBench (MRR 0.76 → 0.93 there) to real chat:
+
+| Set | hybrid | fixed | HGNN |
+| --- | --- | --- | --- |
+| LoCoMo (zero-shot) | 0.298 | 0.265 | 0.309 |
+| LongMemEval held-out 100 | 0.708 | – | 0.53–0.60 |
+
+On LongMemEval, knowledge-update improved (0.72 → 0.80–0.86) but single-session-assistant
+collapsed (0.70 → 0.31–0.40). Diagnosis:
+
+1. **Training split.** `limit: 400` took the first 400 questions in file order, and the
+   file is sorted by `question_type`, so training never saw single-session-assistant
+   (or most knowledge-update) questions. `load_longmemeval` now has `split: train|test`
+   (`test_fraction: 0.2`, `split_seed: 0`). The split is stratified per type and decided
+   by a stable hash of the id, so it is the same under any category filter. Training uses
+   `split: train` and `rank-eval` uses `split: test` (398 / 102 questions, every type in both).
+2. **False supersession.** Fixed propagation, which has no learning, dropped on both real
+   sets, so the heuristic version chains were wrong on natural chat. LoCoMo and LongMemEval
+   put everything in one channel, so links meant to be local became global. The graph now
+   never uses these as linking evidence:
+   * participant names (the speakers seen so far, plus their name tokens); there are also
+     no entity hyperedges for names;
+   * entities or entity tokens found in more than `max_link_df` (0.02) of messages, once
+     they appear in at least 5;
+   * date or time values, which are values, not topics;
+   * the channel-wide key. A statement with no topic phrase used to get the key
+     `channel|attribute`, so every such decision or commitment in a chat chained into one
+     slot. This was the largest source on LoCoMo; those records now link on entity
+     evidence only.
+
+   It also applies **role-aware state** (`state_roles`, default: any non-assistant speaker).
+   Assistant turns stay nodes with entity, reply and episode edges, but they do not create,
+   extend or supersede version chains. The exception is `assistant_confirmation: true`
+   (the default): if a participant replies with a short affirmation ("sounds good", "ok",
+   "let's do that"…) within the next 2 messages of the same session, the suggestion is
+   applied at that point.
+
+Effect, using the hashing embedder and the heuristic extractor. These are CPU numbers, not
+the table above. Mean superseded fraction per conversation graph:
+
+| Set | before | after |
+| --- | --- | --- |
+| StateBench dev | 0.078 | 0.077 |
+| StateBench test | 0.039 | 0.034 |
+| LoCoMo | 0.064 | 0.005 |
+| LongMemEval test split | 0.122 | 0.010 |
+
+Fixed-propagation MRR went 0.267 → 0.275 on LoCoMo and 0.429 → 0.491 on the LongMemEval
+test split. StateBench dev did not change (0.777) and StateBench test went 0.752 → 0.755.
+Fixed propagation is still below seeds on both real sets. On LongMemEval the remaining
+single-session-assistant loss comes from the fixed scorer's asker bonuses (`asker="user"`
+boosts user turns over the assistant turn that holds the answer): without them it scores
+0.668, against 0.599 for seeds and 0.264 for default fixed. The HGNN checkpoints need
+retraining on the new split and graph before their real-data numbers mean anything;
+`jarvis-eval rank-eval configs/eval/rank_real.yaml --checkpoint …` produces the table.
+
 ## Open questions for the GPU runs
 
 * Do the gains hold with Qwen3-Embedding seeds and a real reader + judge?

@@ -7,7 +7,9 @@ Run ``jarvis-eval data fetch <name>`` first for public benchmarks.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import math
 import os
 import re
 from datetime import datetime, timezone
@@ -124,13 +126,38 @@ def _lme_time(s: str) -> float:
     return _ts(datetime.strptime(re.sub(r"\s*\(\w+\)\s*", " ", s).strip(), "%Y/%m/%d %H:%M"))
 
 
+def _split_hash(seed: int, qid: str) -> str:
+    return hashlib.sha1(f"{seed}:{qid}".encode()).hexdigest()
+
+
+def longmemeval_test_ids(entries: Sequence[Dict[str, Any]], test_fraction: float = 0.2, split_seed: int = 0) -> set:
+    """Stratified, order-independent test split: within each question_type, ids sorted by a
+    stable hash of (seed, id); the first ceil(test_fraction * n_type) are test. The file is
+    sorted by type, so ``limit:`` would silently drop whole types."""
+    by_type: Dict[str, List[str]] = {}
+    for e in entries:
+        by_type.setdefault(e["question_type"], []).append(e["question_id"])
+    test: set = set()
+    for ids in by_type.values():
+        ids = sorted(ids, key=lambda q: _split_hash(split_seed, q))
+        test.update(ids[: math.ceil(test_fraction * len(ids))])
+    return test
+
+
 def load_longmemeval(path: Optional[str] = None, variant: str = "s_cleaned",
-                     categories: Optional[Sequence[str]] = None, **_: Any) -> Dataset:
+                     categories: Optional[Sequence[str]] = None, split: Optional[str] = None,
+                     test_fraction: float = 0.2, split_seed: int = 0, **_: Any) -> Dataset:
+    if split not in (None, "train", "test"):
+        raise ValueError(f"split must be None, 'train' or 'test', got {split!r}")
     p = Path(path) if path else data_root() / "longmemeval" / f"longmemeval_{variant}.json"
     raw = json.loads(p.read_text(encoding="utf-8"))
+    # split over the whole file (before category filtering) so it is the same for every filter
+    test_ids = longmemeval_test_ids(raw, test_fraction, split_seed) if split else set()
     convs, questions = {}, []
     for e in raw:
         if categories and e["question_type"] not in categories:
+            continue
+        if split and (e["question_id"] in test_ids) != (split == "test"):
             continue
         cid = e["question_id"]
         msgs, evidence = [], []

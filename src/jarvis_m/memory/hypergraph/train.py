@@ -38,6 +38,7 @@ def build_examples(memory_cfg: Dict[str, Any], datasets: Sequence[Dict[str, Any]
                    progress: bool = True) -> Dict[str, Any]:
     out: List[Example] = []
     stats = {"questions": 0, "with_evidence": 0, "evidence_in_candidates": 0}
+    graph_stats: List[Dict[str, float]] = []  # per conversation graph, for supersession diagnostics
     for dcfg in datasets:
         ds = load_dataset(dcfg)
         t0 = time.perf_counter()
@@ -50,6 +51,7 @@ def build_examples(memory_cfg: Dict[str, Any], datasets: Sequence[Dict[str, Any]
             mem.reset()
             mem.ingest(conv.messages)
             g = mem.graph
+            graph_stats.append(g.stats())
             if hasattr(mem, "prefetch_queries"):
                 mem.prefetch_queries([(q.question, q.asker) for q in qs])
             for q in qs:
@@ -65,6 +67,8 @@ def build_examples(memory_cfg: Dict[str, Any], datasets: Sequence[Dict[str, Any]
         if progress:
             print(f"[hgnn] {ds.name}: {len(ds.questions)} questions, {time.perf_counter() - t0:.1f}s")
     stats["candidate_recall"] = stats["evidence_in_candidates"] / max(1, stats["with_evidence"])
+    for key in ("superseded_fraction", "chains_per_100_messages"):
+        stats[key] = float(np.mean([s[key] for s in graph_stats])) if graph_stats else 0.0
     return {"examples": out, "stats": stats}
 
 
@@ -124,7 +128,7 @@ def train_hgnn(cfg: Dict[str, Any], progress: bool = True) -> Path:
         with torch.no_grad():
             return model(*cache[id(e)]).cpu().numpy()
 
-    best, best_state, bad, history = -1.0, None, 0, []
+    best, best_state, bad, history = float("-inf"), None, 0, []  # no dev data: key is -loss (< -1 possible)
     for ep in range(int(tcfg["epochs"])):
         model.train()
         random.shuffle(train)
