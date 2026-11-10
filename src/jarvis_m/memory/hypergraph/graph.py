@@ -315,6 +315,16 @@ class Hypergraph:
         c = self.chain_of[node]
         return self.chains[c].latest if c >= 0 else None
 
+    def superseding_pairs(self) -> Set[Tuple[str, str]]:
+        """(older message id, newer message id) for every pair of values in one version chain:
+        the graph's claim that the newer statement replaces the older one."""
+        out: Set[Tuple[str, str]] = set()
+        for ch in self.chains:
+            ids = [self.messages[v].id for v, _ in ch.records]
+            for i, older in enumerate(ids):
+                out.update((older, newer) for newer in ids[i + 1:] if newer != older)
+        return out
+
     def neighbours(self, nodes: Iterable[int], weights: Dict[str, float], max_edge_size: int) -> Dict[int, float]:
         """Nodes reachable through one hyperedge, with the best edge weight seen."""
         out: Dict[int, float] = {}

@@ -88,3 +88,5 @@ runs/
 !configs/models/
 data/stress/
 data/extract/
+# generated supersession labels (hand labels in this folder are tracked)
+data/labels/supersession/statebench_*.jsonl

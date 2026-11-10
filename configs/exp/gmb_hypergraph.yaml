@@ -2,7 +2,7 @@
 # The HGNN is trained on StateBench + LongMemEval only: GroupMemBench is zero-shot.
 base: [../defaults.yaml, ../hypergraph_base.yaml, ../models/reader_qwen3_4b_4bit_hf.yaml, ../models/judge_deferred.yaml]
 name: gmb_hypergraph
-dataset: {name: groupmembench, domains: [Finance, Technology, Healthcare, Manufacturing]}
+dataset: {domain: team, name: groupmembench, domains: [Finance, Technology, Healthcare, Manufacturing]}
 retrieval: {max_items: 10, budget_tokens: null}
 arms:
   # ---- message-level baselines

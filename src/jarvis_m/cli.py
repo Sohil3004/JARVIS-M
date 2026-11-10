@@ -7,7 +7,9 @@
     jarvis-eval data make-stress --split train --n 300 [--seed 0] [--out data/stress/statebench_train.json]
     jarvis-eval extract configs/exp/<exp>.yaml --extractor configs/models/extractor_qwen3_4b_4bit_hf.yaml
     jarvis-eval train-hgnn configs/train/hgnn_statebench_lme.yaml
-    jarvis-eval rank-eval configs/eval/rank_real.yaml [--checkpoint models/hgnn/hgnn_v1.pt ...] [--k 5 10]
+    jarvis-eval rank-eval configs/eval/rank_real.yaml [--arm hgnn_v2=models/hgnn/hgnn_v2_s{0,1,2}.pt] [--k 5 10]
+    jarvis-eval supersession-eval configs/eval/supersession.yaml [--labels data/labels/supersession]
+    jarvis-eval make-lodo configs/train/<train>.yaml --out configs/train/lodo/ [--eval-config configs/eval/<rank>.yaml]
     jarvis-eval data info configs/exp/gmb_baselines.yaml
 """
 
@@ -54,6 +56,9 @@ def main(argv=None) -> int:
     ms.add_argument("--seed", type=int, default=0)
     ms.add_argument("--noise", type=float, default=1.0)
     ms.add_argument("--out", default=None)
+    ms.add_argument("--labels-dir", default=None,
+                    help="where the supersession labels go (default data/labels/supersession, or "
+                         "<out dir>/labels/supersession for an --out outside data/stress)")
 
     ex = sub.add_parser("extract", help="offline (LLM) state extraction for an experiment's dataset, resumable")
     ex.add_argument("config", help="experiment yaml (its `dataset:` is used)")
@@ -67,11 +72,29 @@ def main(argv=None) -> int:
 
     re_ = sub.add_parser("rank-eval", help="ranking tables (R@k, MRR) for seeds / fixed / HGNN checkpoints")
     re_.add_argument("config", help="yaml with `memory:` and `datasets:` (each with an optional `label`)")
-    re_.add_argument("--checkpoint", action="append", default=[], metavar="PATH", help="HGNN checkpoint (repeatable)")
+    re_.add_argument("--checkpoint", action="append", default=[], metavar="PATH",
+                     help="HGNN checkpoint as its own arm `hgnn:<file stem>` (repeatable)")
+    re_.add_argument("--arm", action="append", nargs="+", default=[], metavar="NAME=CKPT[,CKPT...]",
+                     help="named arm; several checkpoints are seeds of one model. Braces and globs work: "
+                          "hgnn_v2=models/hgnn/hgnn_v2_s{0,1,2}.pt")
+    re_.add_argument("--reference", default=None, help="arm every other arm is tested against (default seeds)")
+    re_.add_argument("--n-boot", type=int, default=None, help="bootstrap replicates (default 10000)")
     re_.add_argument("--k", type=int, nargs="+", default=None, help="cutoffs for R@k (default 5 10)")
     re_.add_argument("--out", default=None, help="markdown path (default results/rank/<config>.md); JSON next to it")
     re_.add_argument("--device", default="cpu")
     re_.add_argument("--set", dest="overrides", action="append", default=[], metavar="KEY=VALUE")
+
+    se = sub.add_parser("supersession-eval", help="precision / recall of the graph's version chains vs labelled pairs")
+    se.add_argument("config", help="yaml with `memory:` and `datasets:`; optional `labels:` (files or directories)")
+    se.add_argument("--labels", action="append", default=None, metavar="PATH",
+                    help="label file or directory of *.jsonl (default data/labels/supersession)")
+    se.add_argument("--out", default=None, help="markdown path (default results/supersession/<config>.md)")
+    se.add_argument("--set", dest="overrides", action="append", default=[], metavar="KEY=VALUE")
+
+    ml = sub.add_parser("make-lodo", help="write leave-one-domain-out train + rank-eval configs")
+    ml.add_argument("config", help="train config whose datasets carry `domain:`")
+    ml.add_argument("--out", required=True, help="directory for the generated configs")
+    ml.add_argument("--eval-config", default=None, help="rank-eval config to take the held-out datasets from")
 
     a = ap.parse_args(argv)
 
@@ -112,12 +135,31 @@ def main(argv=None) -> int:
 
     if a.cmd == "rank-eval":
         from .config import apply_overrides, load_config
-        from .eval.rank_eval import rank_eval, to_markdown, write_report
+        from .eval.rank_eval import parse_arms, rank_eval, to_markdown, write_report
 
-        res = rank_eval(apply_overrides(load_config(a.config), a.overrides), a.checkpoint, a.k, a.device)
+        res = rank_eval(apply_overrides(load_config(a.config), a.overrides), a.checkpoint, a.k, a.device,
+                        arms=parse_arms([s for group in a.arm for s in group]), reference=a.reference,
+                        n_boot=a.n_boot)
         out = write_report(res, a.out or Path("results/rank") / f"{Path(a.config).stem}.md")
         print(to_markdown(res))
-        print(f"[rank-eval] wrote {out} and {out.with_suffix('.json')}")
+        print(f"[rank-eval] wrote {out}, {out.with_suffix('.json')} and {out.with_suffix('.questions.json')}")
+        return 0
+
+    if a.cmd == "supersession-eval":
+        from .config import apply_overrides, load_config
+        from .eval.supersession import supersession_eval, to_markdown, write_report
+
+        res = supersession_eval(apply_overrides(load_config(a.config), a.overrides), a.labels)
+        out = write_report(res, a.out or Path("results/supersession") / f"{Path(a.config).stem}.md")
+        print(to_markdown(res))
+        print(f"[supersession-eval] wrote {out} and {out.with_suffix('.json')}")
+        return 0
+
+    if a.cmd == "make-lodo":
+        from .eval.lodo import make_lodo
+
+        for p in make_lodo(a.config, a.out, a.eval_config):
+            print(f"[make-lodo] wrote {p}")
         return 0
 
     if a.cmd == "report":
@@ -136,11 +178,17 @@ def main(argv=None) -> int:
             fetch(a.name, force=a.force)
             return 0
         if a.dcmd == "make-stress":
-            from .data.stress import generate, save
+            from .data.stress import generate, save, save_supersession_labels
 
-            out = a.out or f"data/stress/statebench_{a.split}.json"
+            out = Path(a.out or f"data/stress/statebench_{a.split}.json")
             ds = generate(a.n, seed=a.seed, split=a.split, noise=a.noise)
             print(f"[stress] {ds.summary()} -> {save(ds, out)}")
+            in_repo = out.parent.as_posix().endswith("data/stress")
+            labels_dir = a.labels_dir or ("data/labels/supersession" if in_repo
+                                          else out.parent / "labels" / "supersession")
+            lp = save_supersession_labels(ds, labels_dir)
+            if lp:
+                print(f"[stress] {len(ds.annotations['supersession'])} supersession labels -> {lp}")
             return 0
         if a.dcmd == "info":
             from .config import load_config

@@ -1,0 +1,12 @@
+# Version-chain quality against labelled message pairs (no embedder, reader or judge needed):
+#   jarvis-eval data make-stress --split test --n 300      # also writes data/labels/supersession/statebench_test.jsonl
+#   jarvis-eval supersession-eval configs/eval/supersession.yaml
+# Hand labels for real chats go in data/labels/supersession/*.jsonl (docs/LABELING.md). A dataset
+# with no labelled conversation is listed with empty scores.
+memory: {type: hypergraph, embedder: {type: hashing}, extractor: {type: heuristic}}
+labels: [data/labels/supersession]
+datasets:
+  - {label: StateBench dev, domain: team, name: jarvis, path: data/stress/statebench_dev.json}
+  - {label: StateBench test, domain: team, name: jarvis, path: data/stress/statebench_test.json}
+  - {label: LoCoMo, domain: personal, name: locomo}
+  - {label: LongMemEval-S test (stratified 20%), domain: assistant, name: longmemeval, variant: s_cleaned, split: test}

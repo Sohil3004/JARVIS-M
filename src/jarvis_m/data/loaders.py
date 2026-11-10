@@ -14,9 +14,13 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 from ..types import Conversation, Dataset, Message, Question
+
+# Every dataset entry in eval / train configs names one of these (``domain:``).
+DOMAINS = ("team", "assistant", "personal", "enterprise")
+SplitSpec = Union[None, str, Dict[str, Any]]
 
 
 def data_root() -> Path:
@@ -87,12 +91,21 @@ def _locomo_time(s: str) -> float:
     return _ts(datetime.strptime(s.strip(), "%I:%M %p on %d %B, %Y"))
 
 
-def load_locomo(path: Optional[str] = None, categories: Optional[Sequence[str]] = None, **_: Any) -> Dataset:
+def load_locomo(path: Optional[str] = None, categories: Optional[Sequence[str]] = None,
+                split: SplitSpec = None, **_: Any) -> Dataset:
+    """``split: {n_folds, fold, seed, part}`` holds out whole conversations (LoCoMo has no
+    fixed split, so ``split: train|test`` is rejected)."""
     p = Path(path) if path else data_root() / "locomo" / "locomo10.json"
     raw = json.loads(p.read_text(encoding="utf-8"))
+    kind, part, kf = parse_split(split)
+    if kind == "holdout":
+        raise ValueError("LoCoMo has no fixed train/test split: use split: {n_folds: 5, fold: i, seed: 0}")
+    held = kfold_test_ids({"all": [s["sample_id"] for s in raw]}, **kf) if kind == "kfold" else set()
     convs, questions = {}, []
     for sample in raw:
         cid = sample["sample_id"]
+        if kind == "kfold" and (cid in held) != (part == "test"):
+            continue
         conv = sample["conversation"]
         msgs: List[Message] = []
         n_sess = sorted(int(k.split("_")[1]) for k in conv if re.fullmatch(r"session_\d+", k))
@@ -130,6 +143,39 @@ def _split_hash(seed: int, qid: str) -> str:
     return hashlib.sha1(f"{seed}:{qid}".encode()).hexdigest()
 
 
+def parse_split(split: SplitSpec) -> Tuple[Optional[str], str, Dict[str, int]]:
+    """``None`` | ``"train"`` | ``"test"`` | ``{n_folds, fold, seed=0, part="test"}`` ->
+    (kind, part, k-fold arguments). ``part: test`` is fold ``fold``; ``part: train`` is the rest."""
+    if split is None:
+        return None, "", {}
+    if isinstance(split, str):
+        if split not in ("train", "test"):
+            raise ValueError(f"split must be None, 'train', 'test' or a k-fold mapping, got {split!r}")
+        return "holdout", split, {}
+    if not isinstance(split, dict) or "n_folds" not in split or "fold" not in split:
+        raise ValueError(f"k-fold split needs n_folds and fold, got {split!r}")
+    unknown = set(split) - {"n_folds", "fold", "seed", "part"}
+    if unknown:
+        raise ValueError(f"unknown split keys {sorted(unknown)}")
+    n_folds, fold, part = int(split["n_folds"]), int(split["fold"]), str(split.get("part", "test"))
+    if n_folds < 2 or not 0 <= fold < n_folds:
+        raise ValueError(f"need n_folds >= 2 and 0 <= fold < n_folds, got {split!r}")
+    if part not in ("train", "test"):
+        raise ValueError(f"split.part must be 'train' or 'test', got {part!r}")
+    return "kfold", part, {"n_folds": n_folds, "fold": fold, "seed": int(split.get("seed", 0))}
+
+
+def kfold_test_ids(ids_by_stratum: Dict[str, Sequence[str]], n_folds: int, fold: int, seed: int = 0) -> Set[str]:
+    """Ids of fold ``fold``. Inside each stratum, ids are ordered by a stable hash of
+    (seed, id) and dealt round-robin into folds, so every fold gets every stratum and the
+    assignment does not depend on file order or on any filter applied later."""
+    test: Set[str] = set()
+    for ids in ids_by_stratum.values():
+        ordered = sorted(ids, key=lambda q: _split_hash(seed, q))
+        test.update(q for i, q in enumerate(ordered) if i % n_folds == fold)
+    return test
+
+
 def longmemeval_test_ids(entries: Sequence[Dict[str, Any]], test_fraction: float = 0.2, split_seed: int = 0) -> set:
     """Stratified, order-independent test split: within each question_type, ids sorted by a
     stable hash of (seed, id); the first ceil(test_fraction * n_type) are test. The file is
@@ -145,19 +191,26 @@ def longmemeval_test_ids(entries: Sequence[Dict[str, Any]], test_fraction: float
 
 
 def load_longmemeval(path: Optional[str] = None, variant: str = "s_cleaned",
-                     categories: Optional[Sequence[str]] = None, split: Optional[str] = None,
+                     categories: Optional[Sequence[str]] = None, split: SplitSpec = None,
                      test_fraction: float = 0.2, split_seed: int = 0, **_: Any) -> Dataset:
-    if split not in (None, "train", "test"):
-        raise ValueError(f"split must be None, 'train' or 'test', got {split!r}")
+    """``split: train|test`` is the fixed stratified hold-out; ``split: {n_folds, fold, seed,
+    part}`` is k-fold, stratified by question type (each question is its own conversation)."""
+    kind, part, kf = parse_split(split)
     p = Path(path) if path else data_root() / "longmemeval" / f"longmemeval_{variant}.json"
     raw = json.loads(p.read_text(encoding="utf-8"))
     # split over the whole file (before category filtering) so it is the same for every filter
-    test_ids = longmemeval_test_ids(raw, test_fraction, split_seed) if split else set()
+    if kind == "kfold":
+        by_type: Dict[str, List[str]] = {}
+        for e in raw:
+            by_type.setdefault(e["question_type"], []).append(e["question_id"])
+        test_ids = kfold_test_ids(by_type, **kf)
+    else:
+        test_ids = longmemeval_test_ids(raw, test_fraction, split_seed) if kind else set()
     convs, questions = {}, []
     for e in raw:
         if categories and e["question_type"] not in categories:
             continue
-        if split and (e["question_id"] in test_ids) != (split == "test"):
+        if kind and (e["question_id"] in test_ids) != (part == "test"):
             continue
         cid = e["question_id"]
         msgs, evidence = [], []
@@ -190,7 +243,7 @@ def load_jarvis(path: str, categories: Optional[Sequence[str]] = None, **_: Any)
     qs = []
     for q in raw["questions"]:
         q = dict(q)
-        for k in ("evidence_ids", "stale_answers"):
+        for k in ("evidence_ids", "stale_answers", "stale_evidence_ids"):
             q[k] = tuple(q.get(k, ()))
         qs.append(Question(**q))
     ds = Dataset(raw.get("name", Path(path).stem), convs, qs, raw.get("annotations", {}))
@@ -205,12 +258,33 @@ LOADERS: Dict[str, Callable[..., Dataset]] = {
 }
 
 
+def dataset_domain(cfg: Dict[str, Any], required: bool = False) -> Optional[str]:
+    """The ``domain:`` of a dataset config entry, validated against :data:`DOMAINS`."""
+    dom = cfg.get("domain")
+    if dom is None:
+        if required:
+            raise ValueError(f"dataset entry {cfg.get('label') or cfg.get('name')!r} needs `domain:` (one of {DOMAINS})")
+        return None
+    if dom not in DOMAINS:
+        raise ValueError(f"unknown domain {dom!r} for dataset {cfg.get('label') or cfg.get('name')!r}; known: {DOMAINS}")
+    return dom
+
+
+# config keys that describe how a dataset is used, not how it is loaded
+_ENTRY_KEYS = ("label", "weight")
+
+
 def load_dataset(cfg: Dict[str, Any]) -> Dataset:
     cfg = dict(cfg)
     name = cfg.pop("name")
     limit = cfg.pop("limit", None)
     convs = cfg.pop("conversations", None)
+    domain = dataset_domain(cfg)
+    cfg.pop("domain", None)
+    for k in _ENTRY_KEYS:
+        cfg.pop(k, None)
     ds = LOADERS[name](**cfg)
     if limit is not None or convs:
         ds = ds.filter(limit=limit, conversations=convs)
+    ds.domain = domain
     return ds

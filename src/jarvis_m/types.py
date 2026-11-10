@@ -72,6 +72,8 @@ class Question:
     category: str = "default"
     evidence_ids: Tuple[str, ...] = ()  # gold message ids, when the benchmark has them
     stale_answers: Tuple[str, ...] = ()  # superseded values; mentioning one = stale error
+    # messages stating a superseded / rejected value: ranking one above the best gold message = stale-rank error
+    stale_evidence_ids: Tuple[str, ...] = ()
     is_abstention: bool = False  # correct behaviour is to say the answer is not there
     question_time: Optional[float] = None  # "now" for the question, epoch seconds
     meta: Mapping[str, Any] = field(default_factory=dict)
@@ -82,9 +84,11 @@ class Dataset:
     name: str
     conversations: Dict[str, Conversation]
     questions: List[Question]
-    # message id -> hidden labels (decision points, noise flags...). Training /
-    # analysis only. NEVER hand these to a memory system.
-    annotations: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    # Hidden labels: message id -> labels (decision points, noise flags...), plus the named
+    # blocks "supersession" (gold version pairs), "channels" and "principals" (access control
+    # directory). Training / analysis / policy only. NEVER hand message labels to a memory system.
+    annotations: Dict[str, Any] = field(default_factory=dict)
+    domain: Optional[str] = None  # team | assistant | personal | enterprise (set from the dataset config)
 
     def questions_for(self, conversation_id: str) -> List[Question]:
         return [q for q in self.questions if q.conversation_id == conversation_id]
@@ -106,7 +110,7 @@ class Dataset:
             qs = qs[:limit]
         used = {q.conversation_id for q in qs}
         convs = {k: v for k, v in self.conversations.items() if k in used}
-        return Dataset(self.name, convs, qs, self.annotations)
+        return Dataset(self.name, convs, qs, self.annotations, self.domain)
 
     def summary(self) -> Dict[str, Any]:
         cats: Dict[str, int] = {}

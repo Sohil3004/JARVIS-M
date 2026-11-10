@@ -5,7 +5,7 @@
 #   jarvis-eval report runs/statebench_hypergraph --baseline hybrid
 base: [../defaults.yaml, ../hypergraph_base.yaml, ../models/reader_qwen3_4b_4bit_hf.yaml, ../models/judge_deferred.yaml]
 name: statebench_hypergraph
-dataset: {name: jarvis, path: data/stress/statebench_test.json}
+dataset: {domain: team, name: jarvis, path: data/stress/statebench_test.json}
 retrieval: {max_items: 10, budget_tokens: null}
 arms:
   # ---- message-level baselines

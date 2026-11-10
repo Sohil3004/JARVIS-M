@@ -1,7 +1,7 @@
 # CPU-only end-to-end check (seconds): every baseline on the toy fixture.
 base: ../defaults.yaml
 name: smoke_toy
-dataset: {name: jarvis, path: tests/fixtures/toy_team.json}
+dataset: {domain: team, name: jarvis, path: tests/fixtures/toy_team.json}
 retrieval: {budget_tokens: 120, max_items: 4}
 memory: {type: bm25}
 arms:

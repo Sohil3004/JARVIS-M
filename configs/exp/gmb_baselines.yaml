@@ -5,7 +5,7 @@
 # (or one command: add `--then-judge configs/models/judge_qwen3_8b_4bit_hf.yaml` to the run)
 base: [../defaults.yaml, ../models/reader_qwen3_4b_4bit_hf.yaml, ../models/judge_deferred.yaml]
 name: gmb_baselines
-dataset: {name: groupmembench, domains: [Finance, Technology, Healthcare, Manufacturing]}
+dataset: {domain: team, name: groupmembench, domains: [Finance, Technology, Healthcare, Manufacturing]}
 retrieval: {max_items: 10, budget_tokens: null}
 memory: {type: bm25}
 arms:

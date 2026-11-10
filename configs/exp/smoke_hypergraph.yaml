@@ -1,7 +1,7 @@
 # CPU-only hypergraph smoke test on the toy fixture (no models).
 base: ../defaults.yaml
 name: smoke_hypergraph
-dataset: {name: jarvis, path: tests/fixtures/toy_team.json}
+dataset: {domain: team, name: jarvis, path: tests/fixtures/toy_team.json}
 retrieval: {budget_tokens: 200, max_items: 4}
 memory: {type: hypergraph, embedder: {type: hashing}}
 arms:

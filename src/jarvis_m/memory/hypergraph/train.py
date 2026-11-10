@@ -15,11 +15,11 @@ import random
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
 
-from ...data.loaders import load_dataset
+from ...data.loaders import dataset_domain, load_dataset
 from .. import build_memory
 from .subgraph import FEATURE_NAMES, fixed_propagation
 
@@ -32,15 +32,21 @@ class Example:
     labels: np.ndarray
     qid: str
     category: str
+    conversation_id: str = ""
+    dataset: str = ""  # the config entry's label (or the dataset name)
+    domain: Optional[str] = None
+    stale: Optional[np.ndarray] = None  # (n,) 1 for stale evidence nodes inside the candidates
 
 
 def build_examples(memory_cfg: Dict[str, Any], datasets: Sequence[Dict[str, Any]], tokenizer=None,
-                   progress: bool = True) -> Dict[str, Any]:
+                   progress: bool = True, require_domain: bool = False) -> Dict[str, Any]:
     out: List[Example] = []
     stats = {"questions": 0, "with_evidence": 0, "evidence_in_candidates": 0}
     graph_stats: List[Dict[str, float]] = []  # per conversation graph, for supersession diagnostics
     for dcfg in datasets:
+        domain = dataset_domain(dcfg, required=require_domain)
         ds = load_dataset(dcfg)
+        label = dcfg.get("label") or ds.name
         t0 = time.perf_counter()
         for cid, conv in ds.conversations.items():
             qs = [q for q in ds.questions_for(cid) if q.evidence_ids and not q.is_abstention]
@@ -62,8 +68,10 @@ def build_examples(memory_cfg: Dict[str, Any], datasets: Sequence[Dict[str, Any]
                 if labels.sum() == 0:
                     continue
                 stats["evidence_in_candidates"] += 1
+                stale = {g.id2node[e] for e in q.stale_evidence_ids if e in g.id2node}
                 out.append(Example(sg, mem.node_embeddings(sg.nodes), mem.query_embedding(q.question, q.asker),
-                                   labels, q.id, q.category))
+                                   labels, q.id, q.category, cid, label, domain,
+                                   np.array([int(v) in stale for v in sg.nodes], np.float32) if stale else None))
         if progress:
             print(f"[hgnn] {ds.name}: {len(ds.questions)} questions, {time.perf_counter() - t0:.1f}s")
     stats["candidate_recall"] = stats["evidence_in_candidates"] / max(1, stats["with_evidence"])

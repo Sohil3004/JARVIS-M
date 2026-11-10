@@ -4,7 +4,10 @@ Each conversation is a small team working across channels and days. Hidden
 "slots" (hosting choice, release date, task owner, an open bug ...) get set,
 revised, negated, proposed-but-not-adopted, resolved or only promised. Every
 question carries gold evidence message ids, stale (superseded) answers and the
-phenomena it probes, so per-phenomenon curves fall out of one run.
+phenomena it probes, so per-phenomenon curves fall out of one run. Questions also carry
+``stale_evidence_ids`` (the messages stating a superseded or rejected value) and the
+dataset carries gold supersession pairs in ``annotations["supersession"]`` (see
+``docs/LABELING.md``; ``make-stress`` also writes them to ``data/labels/supersession/``).
 
 Phrasings come in *families*. ``split="test"`` uses held-out families, so a
 learned extractor or retriever cannot win by memorising templates.
@@ -154,6 +157,8 @@ def generate(n: int = 100, seed: int = 0, split: str = "train", noise: float = 1
     base_seed = {"train": 0, "dev": 10_000, "test": 20_000}[split] + seed
     convs: Dict[str, Conversation] = {}
     questions: List[Question] = []
+    labels: List[Dict[str, str]] = []
+    name = f"statebench_{split}"
     fams = _fams(split)
     for ci in range(n):
         rng = random.Random(base_seed * 1_000 + ci)
@@ -173,12 +178,24 @@ def generate(n: int = 100, seed: int = 0, split: str = "train", noise: float = 1
             for _ in range(int(rng.random() * 3 * noise * k)):
                 b.say(rng.choice(team), rng.choice(CHATTER), rng.choice(chans))
 
-        def q(kind, text, ans, ev, stale=(), asker=None, phen=(), abst=False):
+        def q(kind, text, ans, ev, stale=(), asker=None, phen=(), abst=False, stale_ev=()):
             qs.append(Question(
                 id=f"{cid}/q{len(qs)}", conversation_id=cid, question=text, answer=ans, asker=asker or rng.choice(team),
                 category=kind, evidence_ids=tuple(ev), stale_answers=tuple(stale), is_abstention=abst,
-                meta={"phenomena": list(phen), "split": split},
+                stale_evidence_ids=tuple(stale_ev), meta={"phenomena": list(phen), "split": split},
             ))
+
+        setters: List[Tuple[str, str]] = []  # (message id, slot) of every message that sets a slot value
+
+        def lab(older, newer, label, ch):
+            labels.append({"dataset": name, "conversation_id": cid, "older_id": older, "newer_id": newer,
+                           "label": label, "holder": f"group:{ch}"})
+
+        def chain_labels(mids, slot, ch):
+            setters.extend((m, slot) for m in mids)
+            for i, older in enumerate(mids):
+                for newer in mids[i + 1:]:
+                    lab(older, newer, "supersedes", ch)
 
         # --- choice slots (set / update / propose / negate), some share a channel (entity collision)
         slots = rng.sample(list(CHOICE_SLOTS), rng.randint(2, 4))
@@ -190,6 +207,7 @@ def generate(n: int = 100, seed: int = 0, split: str = "train", noise: float = 1
             history = [(vals[0], b.say(rng.choice(team), _pick(rng, SET_CHOICE, fams, s=s, v=vals[0]), ch))]
             phen = ["collision"] if ch == shared_chan and len(slots) > 1 else []
             chatter()
+            trap = None
             r = rng.random()
             if r < 0.55:  # one or two updates
                 for k in range(1 if rng.random() < 0.75 else 2):
@@ -199,17 +217,22 @@ def generate(n: int = 100, seed: int = 0, split: str = "train", noise: float = 1
                     history.append((new, b.say(rng.choice(team), _pick(rng, UPDATE_CHOICE, fams, s=s, v=new, old=history[-1][0]), ch, gap=gap)))
                 phen += ["update"] + (["double_update"] if len(history) > 2 else [])
             elif r < 0.75:
-                b.say(rng.choice(team), _pick(rng, PROPOSE, fams, s=s, v=vals[3]), ch)
+                trap = b.say(rng.choice(team), _pick(rng, PROPOSE, fams, s=s, v=vals[3]), ch)
                 phen += ["proposal_trap"]
             elif r < 0.9:
-                b.say(rng.choice(team), _pick(rng, NEGATE, fams, s=s, v=vals[3]), ch)
+                trap = b.say(rng.choice(team), _pick(rng, NEGATE, fams, s=s, v=vals[3]), ch)
                 phen += ["negation_trap"]
             cur, cur_mid = history[-1]
+            chain_labels([h[1] for h in history], s, ch)
+            if trap:
+                lab(cur_mid, trap, "same_slot_no_change", ch)  # a proposal / rejection never replaces the value
             stale = [h[0] for h in history[:-1]] + ([vals[3]] if ("proposal_trap" in phen or "negation_trap" in phen) else [])
             kind = "knowledge_update" if len(history) > 1 else "single_hop"
-            q(kind, rng.choice(Q_CURRENT).format(s=s), cur, [cur_mid], stale, phen=phen or ["plain"])
+            q(kind, rng.choice(Q_CURRENT).format(s=s), cur, [cur_mid], stale, phen=phen or ["plain"],
+              stale_ev=[h[1] for h in history[:-1]] + ([trap] if trap else []))
             if len(history) > 1 and rng.random() < 0.5:
-                q("temporal", rng.choice(Q_FIRST).format(s=s), history[0][0], [history[0][1]], [cur], phen=["history"])
+                q("temporal", rng.choice(Q_FIRST).format(s=s), history[0][0], [history[0][1]], [cur], phen=["history"],
+                  stale_ev=[cur_mid])
             events.append(("choice", s))
 
         # --- deadlines
@@ -222,8 +245,10 @@ def generate(n: int = 100, seed: int = 0, split: str = "train", noise: float = 1
             if rng.random() < 0.6:
                 hist.append((d[1], b.say(rng.choice(team), _pick(rng, UPDATE_DEADLINE, fams, s=s, v=d[1], old=d[0]), ch,
                                          gap=rng.uniform(3600, 86400 * 4))))
+            chain_labels([h[1] for h in hist], s, ch)
             q("knowledge_update" if len(hist) > 1 else "single_hop", rng.choice(Q_DEADLINE).format(s=s), hist[-1][0],
-              [hist[-1][1]], [h[0] for h in hist[:-1]], phen=["deadline"] + (["update"] if len(hist) > 1 else []))
+              [hist[-1][1]], [h[0] for h in hist[:-1]], phen=["deadline"] + (["update"] if len(hist) > 1 else []),
+              stale_ev=[h[1] for h in hist[:-1]])
 
         # --- ownership (attribution, hand-off via reply, user-implicit)
         for t in rng.sample(TASKS, rng.randint(1, 2)):
@@ -232,15 +257,19 @@ def generate(n: int = 100, seed: int = 0, split: str = "train", noise: float = 1
             ch = rng.choice(chans)
             m1 = b.say(owner, _pick(rng, OWN, fams, t=t), ch)
             chatter()
-            ev, stale, phen = [m1], [], ["attribution"]
+            ev, stale, phen, stale_ev = [m1], [], ["attribution"], []
             if rng.random() < 0.5:
                 new_owner = rng.choice([p for p in team if p != owner])
                 ask, ok = _pick(rng, HANDOFF, fams, t=t, p=new_owner).split("|")
                 m2 = b.say(owner, ask, ch, gap=rng.uniform(3600, 86400))
                 m3 = b.say(new_owner, ok, ch, reply_to=m2)
-                ev, stale, phen = [m2, m3], [owner], ["attribution", "handoff", "reply_thread"]
+                ev, stale, phen, stale_ev = [m2, m3], [owner], ["attribution", "handoff", "reply_thread"], [m1]
                 owner = new_owner
-            q("multi_hop" if len(ev) > 1 else "single_hop", rng.choice(Q_OWNER).format(t=t), owner, ev, stale, phen=phen)
+                chain_labels([m1, m3], f"owner of {t}", ch)  # the acceptance is the new value (m2 only asks)
+            else:
+                chain_labels([m1], f"owner of {t}", ch)
+            q("multi_hop" if len(ev) > 1 else "single_hop", rng.choice(Q_OWNER).format(t=t), owner, ev, stale, phen=phen,
+              stale_ev=stale_ev)
             if rng.random() < 0.5:
                 q("user_implicit", rng.choice(Q_MINE), t, ev[-1:], asker=owner, phen=["user_implicit"])
 
@@ -253,10 +282,13 @@ def generate(n: int = 100, seed: int = 0, split: str = "train", noise: float = 1
             chatter()
             if rng.random() < 0.5:
                 mr = b.say(rng.choice(team), _pick(rng, RESOLVE, fams, x=x, f=f), ch, reply_to=mb if rng.random() < 0.5 else None)
+                chain_labels([mb, mr], f"status of {x}", ch)
                 q("knowledge_update", rng.choice(Q_BLOCK).format(x=x), f"Yes, it was resolved by {f}.", [mb, mr],
                   ["still open"], phen=["resolution"])
             else:
                 mp = b.say(rng.choice(team), _pick(rng, PROMISE, fams, x=x, f=f), ch, reply_to=mb if rng.random() < 0.5 else None)
+                chain_labels([mb], f"status of {x}", ch)
+                lab(mb, mp, "same_slot_no_change", ch)  # a promise does not resolve the blocker
                 q("knowledge_update", rng.choice(Q_BLOCK).format(x=x), f"No, it is still open ({e}); a fix is only planned.",
                   [mb, mp], ["resolved", "fixed"], phen=["intent_vs_done"])
 
@@ -272,7 +304,16 @@ def generate(n: int = 100, seed: int = 0, split: str = "train", noise: float = 1
         convs[cid] = Conversation(cid, msgs)
         end = msgs[-1].timestamp + 3600
         questions += [Question(**{**qq.__dict__, "question_time": end}) for qq in qs]
-    return Dataset(f"statebench_{split}", convs, questions)
+        # negatives: statements about two different slots never supersede each other. Sampled
+        # with a separate generator so the conversations do not depend on the labels.
+        when = {m.id: m.timestamp for m in msgs}
+        chan = {m.id: m.channel for m in msgs}
+        cross = [(a, c) for i, (a, sa) in enumerate(setters) for c, sc in setters[i + 1:] if sa != sc]
+        lrng = random.Random(base_seed * 1_000 + ci + 0.5)
+        for a, c in lrng.sample(cross, min(len(cross), 30)):
+            older, newer = sorted((a, c), key=lambda m: when[m])
+            lab(older, newer, "unrelated", chan[newer])
+    return Dataset(name, convs, questions, {"supersession": labels})
 
 
 def save(ds: Dataset, path: str | Path) -> Path:
@@ -285,10 +326,24 @@ def save(ds: Dataset, path: str | Path) -> Path:
     def qj(q: Question):
         d = dict(q.__dict__)
         d["evidence_ids"], d["stale_answers"], d["meta"] = list(q.evidence_ids), list(q.stale_answers), dict(q.meta)
+        d["stale_evidence_ids"] = list(q.stale_evidence_ids)
         return d
 
     obj = {"name": ds.name, "conversations": [{"id": c.id, "messages": [mj(m) for m in c.messages]}
                                               for c in ds.conversations.values()],
            "questions": [qj(q) for q in ds.questions]}
+    if ds.annotations:
+        obj["annotations"] = ds.annotations
     path.write_text(json.dumps(obj), encoding="utf-8")
+    return path
+
+
+def save_supersession_labels(ds: Dataset, out_dir: str | Path) -> Optional[Path]:
+    """Write ``annotations["supersession"]`` as ``<out_dir>/<dataset name>.jsonl`` (docs/LABELING.md)."""
+    rows = ds.annotations.get("supersession") or []
+    if not rows:
+        return None
+    path = Path(out_dir) / f"{ds.name}.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
     return path
