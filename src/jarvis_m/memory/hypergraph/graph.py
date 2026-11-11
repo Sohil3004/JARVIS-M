@@ -44,7 +44,7 @@ import numpy as np
 from ...access import Label, ThreadLabeler, message_label
 from ...extract.heuristic import is_time_expression
 from ...extract.records import STATEFUL, StateRecord, holder_key
-from ...types import Message
+from ...types import GROUP_MIN_PARTICIPANTS, Message
 
 EDGE_TYPES = ("reply", "episode", "channel", "speaker", "entity", "version", "mention")
 ASSISTANT = "assistant"
@@ -134,6 +134,7 @@ class Hypergraph:
         assistant_confirmation: bool = True,
         labeler: Optional[Callable[[Message], Label]] = None,
         open_channel: Optional[Callable[[str], bool]] = None,
+        channel_size: Optional[Callable[[str], Optional[int]]] = None,
     ) -> None:
         self.gap = episode_gap_minutes * 60.0
         self.max_episode = max_episode
@@ -147,6 +148,8 @@ class Hypergraph:
         # a channel with no membership restriction: anyone cleared for the label can read it, so
         # other channels may read its state. Without a directory every channel is open.
         self.open_channel = open_channel or (lambda channel: True)
+        # members of a channel from a directory (None: count the participants who wrote there)
+        self.channel_size = channel_size or (lambda channel: None)
 
         self.messages: List[Message] = []
         self.id2node: Dict[str, int] = {}
@@ -166,6 +169,9 @@ class Hypergraph:
         self._mention_cache: Dict[str, List[int]] = {}
         self._mention_n = 0
         self.replays = 0
+        # channel -> class -> non-assistant speakers: decides group chat vs DM (holder rule)
+        self._chan_spk: Dict[str, Dict[int, Set[str]]] = {}
+        self._group_cache: Dict[Tuple[str, int], bool] = {}
         self._reset_state()
 
     # ------------------------------------------------------------ chain-building state
@@ -184,6 +190,7 @@ class Hypergraph:
         self._ent_df: Dict[int, Counter] = {}
         self._tok_df: Dict[int, Counter] = {}
         self._chan_classes: Dict[str, List[int]] = {}
+        self._work_channels: Set[str] = set()  # channels whose chains used the group-chat rule
 
     # ------------------------------------------------------------ helpers
     def __len__(self) -> int:
@@ -240,6 +247,36 @@ class Hypergraph:
             out.update(t for t in e.split() if t not in names and not self._frequent(tdf.get(t, 0), cls))
         return out
 
+    def is_group_chat(self, channel: str, cls: int) -> bool:
+        """A group chat, as readers of class ``cls`` see it: at least GROUP_MIN_PARTICIPANTS
+        members (from the directory) or distinct non-assistant speakers in the classes of the
+        channel they can read. Counted over every ingested message, not only earlier ones,
+        so the answer does not depend on ingest order."""
+        k = (channel, cls)
+        if k not in self._group_cache:
+            size = self.channel_size(channel)
+            if size is None:
+                who: Set[str] = set()
+                for w, spk in self._chan_spk.get(channel, {}).items():
+                    if self.leq(w, cls):
+                        who |= spk
+                size = len(who)
+            self._group_cache[k] = size >= GROUP_MIN_PARTICIPANTS
+        return self._group_cache[k]
+
+    def _track_speaker(self, v: int) -> bool:
+        """Count ``v``'s speaker for its channel and class. True when the speaker is new
+        there (group-chat status may change)."""
+        m = self.messages[v]
+        if state_role(m) == ASSISTANT:
+            return False
+        spk = self._chan_spk.setdefault(m.channel, {}).setdefault(self.cls[v], set())
+        if m.speaker in spk:
+            return False
+        spk.add(m.speaker)
+        self._group_cache.clear()
+        return True
+
     def _changes_state(self, m: Message) -> bool:
         return self.state_roles is None or state_role(m) in self.state_roles
 
@@ -263,6 +300,8 @@ class Hypergraph:
             for c in raised:  # a late thread parent raised these: they were processed under a lower label
                 self.cls[c] = self._class_of(self.messages[c].channel, self.labels[c])
                 self._dirty = True
+            if self._track_speaker(v) and m.channel in self._work_channels:
+                self._dirty = True  # a new participant can turn a DM into a group chat: replay
             if self.tkey[v] < self._max_tkey:
                 self._dirty = True  # out of order: chains are rebuilt in time order on next use
             else:
@@ -276,6 +315,9 @@ class Hypergraph:
         if not self._dirty:
             return
         self._reset_state()
+        self._chan_spk, self._group_cache = {}, {}  # raised labels moved nodes between classes
+        for v in range(len(self.messages)):
+            self._track_speaker(v)
         for v in sorted(range(len(self.messages)), key=self.tkey.__getitem__):
             self._process(v)
         self._max_tkey = max(self.tkey) if self.tkey else (float("-inf"), -1)
@@ -351,11 +393,17 @@ class Hypergraph:
             pend[:] = [p for p in pend if p[2] > 0]
         return confirmed
 
-    def record_key(self, r: StateRecord, cls: int) -> str:
+    def record_key(self, r: StateRecord, cls: int, channel: Optional[str] = None) -> str:
         """Slot key ``holder|subject|attribute``. A name the extractor found as possessor or
-        subject becomes the holder when it is a participant a reader of ``cls`` knows."""
+        subject becomes the holder when it is a participant a reader of ``cls`` knows. Work
+        state the extractor marked ``group_in_group_chat`` ("I'll take load testing") is
+        group-held in a group chat and stays with the speaker in a DM."""
         names = self._names_for(cls)
         hk = holder_key(r.holder)
+        if (r.meta or {}).get("group_in_group_chat") and channel is not None:
+            self._work_channels.add(channel)
+            if self.is_group_chat(channel, cls):
+                return f"{holder_key('group:' + channel)}|{r.subject.lower().strip()}|{r.attribute.lower().strip()}"
         for cand in (r.meta or {}).get("named", ()):
             who = names.get(str(cand).strip().lower())
             if who and len(who) == 1:
@@ -421,7 +469,7 @@ class Hypergraph:
 
     def _add_version(self, v: int, r: StateRecord, cls: int) -> None:
         m = self.messages[v]
-        key = self.record_key(r, cls)
+        key = self.record_key(r, cls, m.channel)
         topicless = not r.explicit_key and r.subject == (m.channel or "")
         target = self._find_chain(r, key, cls, topicless)
         if target is None:

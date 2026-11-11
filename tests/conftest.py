@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 # the final access check raises instead of filtering + logging (docs/ACCESS_CONTROL.md)
-os.environ.setdefault("JARVIS_ACCESS_MODE", "debug")
+os.environ.setdefault("JARVIS_ACCESS_CHECK", "debug")
 
 from jarvis_m.data.loaders import load_jarvis  # noqa: E402
 

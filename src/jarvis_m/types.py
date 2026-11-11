@@ -11,6 +11,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
+# A channel with at least this many distinct (non-assistant) participants is a group chat;
+# fewer is a DM. One constant for every rule that depends on it: the default audience of an
+# answer (jarvis_m.access), the group-holder rule for work state (hypergraph version chains)
+# and the own-state bonus of the fixed scorer.
+GROUP_MIN_PARTICIPANTS = 3
+
 
 @dataclass(frozen=True)
 class Message:

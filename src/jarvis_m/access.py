@@ -8,6 +8,12 @@ Labels only ever go up. The effective label of a message is the join (higher lev
 of compartments) of: the channel default, the message's own ``acl_*`` metadata, explicit
 markers in the text such as ``[CONFIDENTIAL]``, an optional extractor suggestion, and the
 label of the message it replies to. See ``docs/ACCESS_CONTROL.md``.
+
+Whether anything is enforced is ``AccessPolicy.mode``: ``auto`` (the default) enforces as
+soon as any access-control metadata exists (a channel or principal directory, a channel
+default or marker in the policy, or one message with a non-public label) and is a no-op
+otherwise; ``on`` requires that metadata; ``off`` builds no access control at all.
+Participant count never switches enforcement off.
 """
 
 from __future__ import annotations
@@ -35,7 +41,7 @@ from typing import (
 
 import numpy as np
 
-from .types import Message
+from .types import GROUP_MIN_PARTICIPANTS, Message
 
 log = logging.getLogger("jarvis_m.access")
 
@@ -47,6 +53,10 @@ Audience = Union[None, str, Sequence[str]]
 
 class AccessViolation(RuntimeError):
     """Retrieval was about to return something its principal may not read."""
+
+
+class AccessConfigError(RuntimeError):
+    """``mode: on`` without any access-control metadata to enforce."""
 
 
 class Label(NamedTuple):
@@ -139,16 +149,21 @@ class ChannelDirectory:
     def known(self, channel: str) -> bool:
         return channel in self._members
 
+    def listed(self) -> bool:
+        """Does the directory list any channel? An empty directory restricts nothing."""
+        return bool(self._members)
+
     def is_open(self, channel: str) -> bool:
         if channel in self._members:
             return self._members[channel] is None
-        return self.unlisted == "open"
+        return self.unlisted == "open" or not self._members
 
     def members(self, channel: str) -> Optional[FrozenSet[str]]:
-        """Member ids, or None for an open channel. An unlisted closed channel has no members."""
+        """Member ids, or None for an open channel. An unlisted channel is closed (no members)
+        under ``unlisted: closed``, unless the directory lists no channel at all."""
         if channel in self._members:
             return self._members[channel]
-        return None if self.unlisted == "open" else frozenset()
+        return None if self.is_open(channel) else frozenset()
 
     def is_member(self, principal: Principal, channel: str) -> bool:
         members = self.members(channel)
@@ -166,15 +181,21 @@ class AccessPolicy:
     signal_hidden_updates: bool = False
     inactive_audience_members: str = "block"  # block: an inactive member empties the audience | ignore
     use_extractor_suggestions: bool = True
-    mode: str = "prod"  # final check: prod = filter + log, debug = raise
+    # off: no access control | auto: enforce when any ACL metadata exists, else a no-op | on: require it
+    mode: str = "auto"
+    final_check: str = "prod"  # prod = filter + log, debug = raise
     enforce: bool = True  # False = measure only (labels and audit, nothing is filtered). Never in production.
 
     def __post_init__(self) -> None:
         self.levels = tuple(self.levels)
         if len(set(self.levels)) != len(self.levels) or not self.levels:
             raise ValueError("levels must be a non-empty list of distinct names")
-        if self.mode not in ("prod", "debug"):
-            raise ValueError("mode must be 'prod' or 'debug'")
+        if self.mode in ("prod", "debug"):  # before mode meant the final check
+            self.final_check, self.mode = self.mode, "auto"
+        if self.mode not in ("off", "auto", "on"):
+            raise ValueError("access mode must be 'off', 'auto' or 'on'")
+        if self.final_check not in ("prod", "debug"):
+            raise ValueError("final_check must be 'prod' or 'debug'")
         if self.inactive_audience_members not in ("block", "ignore"):
             raise ValueError("inactive_audience_members must be 'block' or 'ignore'")
         self._markers = [(re.compile(m["pattern"], re.I), Label(self.level(m.get("level", 0)),
@@ -219,6 +240,11 @@ class AccessPolicy:
 
     def level_name(self, index: int) -> str:
         return self.levels[index] if 0 <= index < len(self.levels) else str(index)
+
+    def has_label_sources(self) -> bool:
+        """Does the policy itself label anything (a channel default or a text marker)?"""
+        return bool(self._markers) or any(lab != PUBLIC for lab in self._channel_labels.values()) \
+            or self._default != PUBLIC
 
     def channel_label(self, channel: str) -> Label:
         return self._channel_labels.get(channel, self._default)
@@ -318,11 +344,11 @@ class AccessController:
                  principals: Optional[Mapping[str, Any]] = None,
                  channels: Optional[Mapping[str, Any]] = None) -> None:
         self.policy = policy or AccessPolicy()
-        env_mode = os.environ.get("JARVIS_ACCESS_MODE")  # e.g. the test suite runs with "debug"
-        if env_mode:
-            if env_mode not in ("prod", "debug"):
-                raise ValueError("JARVIS_ACCESS_MODE must be 'prod' or 'debug'")
-            self.policy.mode = env_mode
+        env_check = os.environ.get("JARVIS_ACCESS_CHECK")  # e.g. the test suite runs with "debug"
+        if env_check:
+            if env_check not in ("prod", "debug"):
+                raise ValueError("JARVIS_ACCESS_CHECK must be 'prod' or 'debug'")
+            self.policy.final_check = env_check
         self.directory = ChannelDirectory(unlisted=self.policy.unlisted_channels)
         self.principals: Dict[str, Principal] = {}
         self.configure(principals=principals, channels=channels)
@@ -341,6 +367,46 @@ class AccessController:
                 self.policy.set_channel_default(name, spec.get("level"), spec.get("compartments"))
         for pid, spec in {**(ann.get("principals") or {}), **(principals or {})}.items():
             self.principals[str(pid)] = spec if isinstance(spec, Principal) else self.policy.principal(pid, spec)
+
+    # ------------------------------------------------------------ is anything enforced?
+    def configured(self) -> bool:
+        """Is there access-control metadata besides message labels: a principal or channel
+        directory, or a policy that labels channels or text?"""
+        return bool(self.principals) or self.directory.listed() or self.policy.has_label_sources()
+
+    def active(self, labels: Sequence[Label] = ()) -> bool:
+        """Is access control in force for a memory whose messages carry ``labels``?
+        ``auto``: when any metadata exists, including one non-public label (labels only go up,
+        so once true it stays true). ``on``: always, and missing metadata is an error. Never
+        decided by the number of participants."""
+        if self.policy.mode == "off":
+            return False
+        if self.configured() or any(lab != PUBLIC for lab in labels):
+            return True
+        if self.policy.mode == "on":
+            raise AccessConfigError(
+                "access mode is 'on' but there is no access-control metadata: no principals, no channel "
+                "directory, no policy channel defaults or markers and no labelled message. Configure them "
+                "(configure_access / dataset annotations) or use mode: auto.")
+        return False
+
+    def default_audience(self, asker: Optional[str], channel: Optional[str],
+                         speakers: Iterable[str] = ()) -> Audience:
+        """Who an answer posted in ``channel`` is for when the question names no audience.
+        A group chat (at least GROUP_MIN_PARTICIPANTS members, counting the asker) or an open
+        channel: everyone in it, so the answer must be safe for all of them. A DM, or no
+        channel: the asker alone (None). Members come from the directory; for a channel it
+        does not list, from ``speakers`` (who has written there)."""
+        if channel is None:
+            return None
+        if self.directory.known(channel):
+            members = self.directory.members(channel)
+            if members is None:
+                return channel  # open: anyone may read what is posted there
+            ids = set(members) | ({str(asker)} if asker is not None else set())
+            return channel if len(ids) >= GROUP_MIN_PARTICIPANTS else None
+        ids = {str(s) for s in speakers} | ({str(asker)} if asker is not None else set())
+        return sorted(ids) if len(ids) >= GROUP_MIN_PARTICIPANTS else None
 
     # ------------------------------------------------------------ who is asking
     def resolve(self, pid: Optional[str]) -> Principal:
@@ -393,14 +459,30 @@ class AccessController:
                 "compartments": sorted(p.compartments), "active": p.active, "members": list(p.members)}
 
 
-def build_access(cfg: Union[None, str, Path, Mapping[str, Any], AccessController]) -> Optional[AccessController]:
-    """``None`` = no access control. Otherwise a policy mapping, or the path of a YAML file
-    with an ``access:`` block (``configs/access/default.yaml``). The mapping may also carry
-    ``principals:`` and ``channels:`` directory blocks."""
-    if cfg is None or cfg is False:
-        return None
+_MODES = ("off", "auto", "on")
+
+
+def build_access(cfg: Union[None, bool, str, Path, Mapping[str, Any], AccessController]) -> Optional[AccessController]:
+    """``None`` (the default) = ``mode: auto`` with the built-in policy (labels from message
+    metadata and the dataset's directory only). ``"off"`` / ``False`` = no access control (returns
+    None); ``"auto"``, ``"on"`` / ``True`` = that mode with the built-in policy. Otherwise a policy
+    mapping, or the path of a YAML file with an ``access:`` block (``configs/access/default.yaml``),
+    or ``{policy: <path or mapping>, <key>: <override>}``. The mapping may also carry
+    ``principals:`` and ``directory:`` blocks."""
+    if cfg is True:
+        cfg = "on"
+    if cfg is False:
+        cfg = "off"
     if isinstance(cfg, AccessController):
         return cfg
+    if cfg is None or (isinstance(cfg, str) and cfg in _MODES):
+        ac = AccessController(AccessPolicy(mode=cfg or "auto"))
+        return None if ac.policy.mode == "off" else ac
+    ac = _build(cfg)
+    return None if ac.policy.mode == "off" else ac
+
+
+def _build(cfg: Union[str, Path, Mapping[str, Any]]) -> AccessController:
     principals = channels = None
     if isinstance(cfg, Mapping):
         cfg = dict(cfg)

@@ -68,10 +68,13 @@ class MemorySystem(ABC):
         max_items: Optional[int] = None,
         now: Optional[float] = None,
         audience: Optional[Any] = None,
+        channel: Optional[str] = None,
     ) -> Retrieval:
         """``audience``: who will see the answer besides the asker: a channel name or a list
-        of principal ids (default: the asker alone). Systems with access control answer for
-        the meet of all of them; systems without it ignore the argument."""
+        of principal ids. Systems with access control answer for the meet of all of them;
+        systems without it ignore the argument. ``channel``: where the question was asked.
+        With no explicit audience, an answer in a group chat is for everyone in it, and in a
+        DM (or with no channel) for the asker alone."""
 
     def configure_access(self, annotations: Optional[Mapping[str, Any]] = None, **kw: Any) -> None:  # noqa: B027
         """Load a channel / principal directory (``Dataset.annotations``). No-op for

@@ -75,7 +75,8 @@ def build_examples(memory_cfg: Dict[str, Any], datasets: Sequence[Dict[str, Any]
                 mem.prefetch_queries([(q.question, q.asker) for q in qs])
             for q in qs:
                 stats["with_evidence"] += 1
-                audience = q.meta.get("audience")
+                # explicit audience, or the default for the question's channel (group chat: everyone)
+                audience = mem.audience_for(q.asker, q.meta.get("audience"), q.meta.get("channel"))
                 sg = mem.subgraph(q.question, q.asker, q.question_time, audience=audience)
                 gold = {g.id2node[e] for e in q.evidence_ids if e in g.id2node}
                 labels = np.array([int(v) in gold for v in sg.nodes], np.float32)

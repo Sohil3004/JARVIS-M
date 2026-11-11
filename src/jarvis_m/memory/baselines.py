@@ -8,7 +8,8 @@ All share the same knobs so they double as ablation arms:
 * ``order``: ``chronological`` (default) or ``score`` ordering inside the prompt
 * ``query_with_asker``: prepend the asker id to the query (GroupMemBench protocol)
 * ``access``: access-control policy (``jarvis_m.access``); messages the effective principal
-  may not read are never ranked, packed or returned. ``None`` = no access control.
+  may not read are never ranked, packed or returned. Default (None) = ``mode: auto``: enforced
+  as soon as the data carries access-control metadata, a no-op otherwise. ``off`` = none.
 * ``idf_scope`` (BM25 / hybrid): ``global`` or ``view`` (collection statistics over the
   readable messages only; see docs/ACCESS_CONTROL.md, residual leaks)
 """
@@ -20,7 +21,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
-from ..access import AccessViolation, Label, Principal, ThreadLabeler, build_access
+from ..access import AccessViolation, Audience, Label, Principal, ThreadLabeler, build_access
 from ..access import log as access_log
 from ..embeddings import Embedder, build_embedder
 from ..interfaces import MemorySystem, Retrieval, RetrievedItem
@@ -57,11 +58,13 @@ class MessageStoreMemory(MemorySystem):
         self.query_with_asker = query_with_asker
         self.counter = counter or ApproxTokenCounter()
         self.messages: List[Message] = []
+        self._speakers: Dict[str, Any] = {}
 
     # -- lifecycle ---------------------------------------------------------
     def reset(self) -> None:
         self.messages = []
         self._labeler = None
+        self._speakers = {}
 
     def ingest(self, messages: Sequence[Message]) -> None:
         self.messages.extend(messages)
@@ -89,9 +92,32 @@ class MessageStoreMemory(MemorySystem):
         """Effective label per stored message (only with access control)."""
         return self._labeler.labels if self._labeler is not None else []
 
-    def principal(self, asker: Optional[str], audience: Any = None) -> Optional[Principal]:
-        """Who the answer must be safe for; None when there is no access control."""
-        return self.access.effective(asker, audience) if self.access is not None else None
+    def access_active(self) -> bool:
+        """Is access control in force? (``mode: auto`` with no metadata at all: no.)"""
+        return self.access is not None and self.access.active(self.message_labels())
+
+    def channel_speakers(self, channel: str) -> List[str]:
+        """Distinct non-assistant speakers who wrote in ``channel``."""
+        hit = self._speakers.get(channel)
+        if hit is None or hit[0] != len(self.messages):
+            who = sorted({m.speaker for m in self.messages if m.channel == channel
+                          and (m.speaker or "").lower() != "assistant" and (m.role or "").lower() != "assistant"})
+            hit = self._speakers[channel] = (len(self.messages), who)
+        return hit[1]
+
+    def audience_for(self, asker: Optional[str], audience: Audience = None, channel: Optional[str] = None) -> Audience:
+        """The explicit audience, or the default for a question asked in ``channel``: in a
+        group chat everyone in it, in a DM (or with no channel) the asker alone."""
+        if audience is not None or channel is None or not self.access_active():
+            return audience
+        return self.access.default_audience(asker, channel, self.channel_speakers(channel))
+
+    def principal(self, asker: Optional[str], audience: Audience = None,
+                  channel: Optional[str] = None) -> Optional[Principal]:
+        """Who the answer must be safe for; None when access control is not in force."""
+        if not self.access_active():
+            return None
+        return self.access.effective(asker, self.audience_for(asker, audience, channel))
 
     def readable(self, principal: Optional[Principal]) -> np.ndarray:
         """Per message: may ``principal`` read it? (all True without access control)."""
@@ -110,18 +136,21 @@ class MessageStoreMemory(MemorySystem):
                if not self.access.can_read(principal, labels[v], self.messages[v].channel)]
         if bad and self.access.policy.enforce:
             ids = [self.messages[v].id for v in bad]
-            if self.access.policy.mode == "debug":
+            if self.access.policy.final_check == "debug":
                 raise AccessViolation(f"{self.name}: about to return {ids} to {principal.id}, who may not read them")
             access_log.error("%s: withheld %d unreadable message(s) from %s: %s", self.name, len(bad), principal.id, ids)
         return bad
 
     def _audit(self, principal: Optional[Principal], asker: Optional[str], audience: Any,
                visible: Optional[np.ndarray] = None, filtered: int = 0, **extra: Any) -> Dict[str, Any]:
-        if self.access is None or principal is None:
+        if self.access is None:
             return {"mode": "off"}
+        if principal is None:
+            return {"mode": self.access.policy.mode, "active": False}
         vis = self.readable(principal) if visible is None else visible
         enforced = self.access.policy.enforce
-        out = {"mode": self.access.policy.mode, "enforced": enforced,
+        out = {"mode": self.access.policy.mode, "active": True, "final_check": self.access.policy.final_check,
+               "enforced": enforced,
                "principal": self.access.describe(principal), "asker": asker, "audience": audience,
                "visible": int(vis.sum()), "hidden": int(len(vis) - vis.sum()),
                "filtered": int(filtered) if enforced else 0, **extra}
@@ -180,7 +209,9 @@ class MessageStoreMemory(MemorySystem):
         idx = idx[np.argsort(-s[idx], kind="stable")]
         return [(int(i), float(s[i])) for i in idx]
 
-    def retrieve(self, query, *, asker=None, budget_tokens=None, max_items=None, now=None, audience=None) -> Retrieval:
+    def retrieve(self, query, *, asker=None, budget_tokens=None, max_items=None, now=None, audience=None,
+                 channel=None) -> Retrieval:
+        audience = self.audience_for(asker, audience, channel)
         principal = self.principal(asker, audience)
         ranked = self.rank(query, asker, now, principal)
         kept, _, _ = pack(
@@ -219,8 +250,10 @@ class FullContext(RecencyWindow):
 
     name = "full_context"
 
-    def retrieve(self, query, *, asker=None, budget_tokens=None, max_items=None, now=None, audience=None) -> Retrieval:
-        r = super().retrieve(query, asker=asker, budget_tokens=None, max_items=None, now=now, audience=audience)
+    def retrieve(self, query, *, asker=None, budget_tokens=None, max_items=None, now=None, audience=None,
+                 channel=None) -> Retrieval:
+        r = super().retrieve(query, asker=asker, budget_tokens=None, max_items=None, now=now, audience=audience,
+                             channel=channel)
         r.info["over_budget"] = bool(budget_tokens is not None and r.n_tokens > budget_tokens)
         return r
 

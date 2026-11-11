@@ -12,9 +12,10 @@ from typing import Dict, List, Optional, Sequence, Set
 
 import numpy as np
 
+from ...types import GROUP_MIN_PARTICIPANTS
 from .graph import ASSISTANT, EDGE_TYPES, GraphView, Hyperedge, Hypergraph, state_role
 
-MODALITY_FEATS = ("decision", "commitment", "done", "blocker", "negated", "proposal", "question", "info")
+MODALITY_FEATS = ("decision", "commitment", "done", "blocker", "negated", "state", "proposal", "question", "info")
 FIRST_PERSON = re.compile(r"\b(?:i|me|my|mine|myself|i'm|i've|i'll)\b", re.I)
 HISTORICAL = re.compile(
     r"\b(?:before|previous(?:ly)?|original(?:ly)?|initial(?:ly)?|at first|first (?:decided|chose|planned)|"
@@ -218,7 +219,7 @@ def fixed_propagation(
     version_pull: float = 0.95,
     asker_bonus: float = 0.0,
     own_state_bonus: float = 0.5,
-    min_participants: int = 3,
+    min_participants: int = GROUP_MIN_PARTICIPANTS,
 ) -> np.ndarray:
     """Fixed (unlearned) hypergraph scoring.
 

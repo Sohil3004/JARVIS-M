@@ -50,13 +50,15 @@ def _state(g):
 
 # ---------------------------------------------------------------- B1 holders
 @pytest.mark.parametrize("text,attribute,holder", [
-    ("I'm vegetarian now.", "preference", "speaker:Ana"),
-    ("My laptop is a ThinkPad.", "possession", "speaker:Ana"),
-    ("We decided to use Kafka for the queue.", "decision", "group:eng"),
-    ("I think our release date should be Friday.", "deadline", "group:eng"),
-    ("The release is due Friday.", "deadline", "group:eng"),
-    ("I'll take the migration script.", "owner", "group:eng"),  # work state belongs to the group
-    ("I fixed the staging deploy.", "status", "group:eng"),
+    ("I'm vegetarian now.", "preference", ("speaker:Ana", False)),
+    ("My laptop is a ThinkPad.", "possession", ("speaker:Ana", False)),
+    ("We decided to use Kafka for the queue.", "decision", ("group:eng", False)),
+    ("I think our release date should be Friday.", "deadline", ("group:eng", False)),
+    ("The release is due Friday.", "deadline", ("group:eng", False)),
+    # work state in the first person: the group's in a group chat, the speaker's in a DM (graph decides)
+    ("I'll take the migration script.", "owner", ("speaker:Ana", True)),
+    ("I fixed the staging deploy.", "status", ("speaker:Ana", True)),
+    ("My visa got approved.", "status", ("speaker:Ana", False)),  # a personal statement
 ])
 def test_heuristic_holder_rules(text, attribute, holder):
     assert holder_of(text, "Ana", "eng", attribute) == holder
@@ -102,11 +104,35 @@ def test_named_participant_becomes_the_holder_but_tools_do_not():
     assert {s.key.split("|")[0] for s in late.chains} == {"group:eng"}
 
 
-def test_owner_hand_off_still_supersedes():
-    g = _graph([("Ana", "I'll take the migration script."),
-                ("Ana", "Ben, can you take over the migration script from me?"),
-                ("Ben", "Sure, I'll own the migration script from now on.")])
+HAND_OFF = [("Ana", "I'll take the migration script."),
+            ("Ana", "Ben, can you take over the migration script from me?"),
+            ("Ben", "Sure, I'll own the migration script from now on.")]
+
+
+def test_owner_hand_off_supersedes_in_a_group_chat():
+    g = _graph([*HAND_OFF, ("Cy", "thanks both"), ("Dee", "noted")])  # a 4-person channel
     assert g.superseded[0] and not g.superseded[2] and g.current_of(0) == 2
+    assert {s.key.split("|")[0] for s in g.chains} == {"group:eng"}
+
+
+def test_first_person_work_state_is_the_speakers_in_a_dm():
+    g = _graph(HAND_OFF)  # two people: a DM, each owns their own task
+    assert not g.superseded[0] and g.current_of(0) == 0 and g.current_of(2) == 2
+    assert {s.key.split("|")[0] for s in g.chains} == {"p:ana", "p:ben"}
+    # the third participant arrives later (in time or in ingest order): the chat is a group chat now
+    for late in (_graph([*HAND_OFF, ("Cy", "ok")]), _graph([*HAND_OFF, ("Cy", "ok")], order=[3, 0, 1, 2])):
+        assert late.current_of(late.id2node["m0"]) == late.id2node["m2"]
+    # a directory decides the size when it knows the channel
+    assert _graph(HAND_OFF, channel_size=lambda c: 5).current_of(0) == 2
+
+
+def test_personal_statements_stay_with_the_speaker_in_a_group_chat():
+    g = _graph([("Ana", "I moved to Pune last month."), ("Ben", "I live in Berlin."), ("Cy", "nice"),
+                ("Ana", "Actually I relocated to Mumbai in May."), ("Ana", "My visa got approved!")])
+    assert g.current_of(0) == 3 and g.current_of(1) == 1  # Ana's home changed; Ben's is his own
+    keys = {s.key for s in g.chains}
+    assert "p:ana|home|location" in keys and "p:ben|home|location" in keys
+    assert "p:ana|eng/visa|status" in keys  # "my visa": Ana's, not the group's
 
 
 # ---------------------------------------------------------------- B2 scope-aware chains

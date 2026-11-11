@@ -73,7 +73,8 @@ def run(cfg: Dict[str, Any], arm: str = "", progress: bool = True) -> Path:
             for i, q in enumerate(qs):
                 t1 = time.perf_counter()
                 r = mem.retrieve(q.question, asker=q.asker, budget_tokens=budget, max_items=max_items,
-                                 now=q.question_time, audience=q.meta.get("audience"))
+                                 now=q.question_time, audience=q.meta.get("audience"),
+                                 channel=q.meta.get("channel"))
                 t2 = time.perf_counter()
                 pred, raw = reader.answer(q, r.context)
                 t3 = time.perf_counter()

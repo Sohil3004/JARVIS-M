@@ -5,10 +5,11 @@ and the ablation measures the gap."""
 from __future__ import annotations
 
 import re
-from typing import List, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from ..text import STOPWORDS
 from ..types import Message
-from .records import StateRecord
+from .records import WORK_ATTRIBUTES, StateRecord
 
 _CAP_STOP = {
     "i", "i'm", "i'll", "i've", "i'd", "the", "we", "we're", "we'll", "ok", "okay", "yes", "no", "hey", "hi",
@@ -94,16 +95,45 @@ def entities(text: str) -> Tuple[str, ...]:
         if low not in seen:
             seen.add(low)
             out.append(low)
+    for head in np_heads(text):  # lowercase chat: "my laptop", "our landlord"
+        if head not in seen:
+            seen.add(head)
+            out.append(head)
     # drop entities fully contained in a longer one ("cloud run" inside "google cloud run")
     return tuple(e for e in out if not any(e != o and f" {e} " in f" {o} " for o in out))
 
 
-_DET = re.compile(r"\b(?:the|our)\s+((?:[a-z0-9][\w\-/.]*\s+){0,3}[a-z0-9][\w\-/.]*)")
+_DET = re.compile(r"\b(?:the|our|my)\s+((?:[a-z0-9][\w\-/.]*\s+){0,3}[a-z0-9][\w\-/.]*)")
+_POSS = re.compile(r"\b(?:my|our)\s+((?:[a-z0-9][\w\-]*\s+){0,2}[a-z0-9][\w\-]*)")
 _GENERIC_NOUNS = {"rumour", "rumor", "idea", "meantime", "way", "thread", "chat", "call", "team", "moment", "record",
                   "end", "point", "same", "rest", "time", "thing", "things", "question", "link"}
+_NP_SKIP = {"new", "old", "other", "first", "last", "next", "same", "whole", "only", "best", "own", "way", "lot",
+            "bit", "day", "week", "month", "year", "morning", "evening", "night", "weekend", "kind", "sort",
+            "one", "ones", "part", "side", "number", "list", "plan", "update", "news", "issue", "problem"}
 _BOUNDARY = {"is", "are", "to", "from", "now", "it", "has", "have", "was", "will", "side", "instead", "after",
              "not", "be", "by", "for", "as", "with", "on", "in", "at", "of", "back", "out", "again", "this", "that",
-             "and", "or", "but", "so", "done", "lands", "slips", "works", "issue", "problem", "today", "tomorrow"}
+             "and", "or", "but", "so", "done", "lands", "slips", "works", "issue", "problem", "today", "tomorrow",
+             "got", "get", "gets", "went", "goes", "just", "really", "still", "finally", "keeps", "seems", "looks",
+             "needs", "broke", "came", "did", "does", "can", "could", "should", "would", "had", "been"}
+
+
+def np_heads(text: str) -> Tuple[str, ...]:
+    """Head nouns of ``my / our <noun phrase>`` ("my new laptop" -> "laptop"): entities
+    that do not depend on capitalisation. Function words, generic nouns and words that end a
+    noun phrase ("the deploy is ...") are skipped."""
+    out: List[str] = []
+    for m in _POSS.finditer((text or "").lower()):
+        words = []
+        for w in m.group(1).split():
+            w = w.strip(".,:;!?()'\"")
+            if not w or w in _BOUNDARY or w in STOPWORDS:
+                break
+            words.append(w)
+        head = words[-1] if words else ""
+        if len(head) >= 3 and not head.isdigit() and head not in _GENERIC_NOUNS and head not in _NP_SKIP \
+                and head not in out:
+            out.append(head)
+    return tuple(out)
 
 
 def topic_phrase(text: str, ents: Sequence[str] = ()) -> str:
@@ -126,9 +156,12 @@ def topic_phrase(text: str, ents: Sequence[str] = ()) -> str:
 
 
 # ---- holders: whose fact is it?
-# Work state belongs to the group even when stated in the first person: "I'll take load
-# testing" sets the task's owner, and the next owner must be able to supersede it.
-GROUP_ATTRIBUTES = frozenset({"owner", "status"})
+# Work state (owner, status, deadline, decision) said in the first person singular belongs to
+# the group in a group chat ("I'll take load testing" sets the task's owner, and the next owner
+# must be able to supersede it) and to the speaker in a DM. The extractor cannot see how many
+# people are in the chat, so it marks such records ``group_in_group_chat`` and the graph decides.
+# Personal statements ("my visa got approved", "I moved to Pune") always stay with the speaker.
+GROUP_ATTRIBUTES = WORK_ATTRIBUTES
 _MY = re.compile(r"\b(?:my|mine|myself)\b", re.I)
 _WE = re.compile(r"\b(?:we|we're|we'll|we've|we'd|our|ours|us|let's|lets)\b", re.I)
 _I = re.compile(r"\b(?:i|i'm|i've|i'll|i'd|me|im|ive)\b", re.I)
@@ -148,19 +181,68 @@ def named_holders(text: str, speaker: str = "") -> Tuple[str, ...]:
     return tuple(out)
 
 
-def holder_of(text: str, speaker: str, channel: str, attribute: str) -> str:
-    """``speaker:<name>`` for a first-person-singular statement, ``group:<channel>`` for a
-    first-person-plural statement, one with no pronoun, and all work state (owner, status)."""
+def holder_of(text: str, speaker: str, channel: str, attribute: str, personal: bool = False) -> Tuple[str, bool]:
+    """(holder, group_in_group_chat). ``my / mine`` and personal statements: the speaker.
+    Then ``we / our / let's``: the group (``group:<channel>``). Then ``I / me``: the speaker,
+    except for work state, which is group-held when the chat turns out to be a group chat
+    (second value True). No pronoun: the group."""
     group = f"group:{channel or 'default'}"
-    if attribute in GROUP_ATTRIBUTES:
-        return group
-    if _MY.search(text):
-        return f"speaker:{speaker}"
+    if _MY.search(text) or (personal and _I.search(text)):
+        return f"speaker:{speaker}", False
     if _WE.search(text):
-        return group
+        return group, False
     if _I.search(text):
-        return f"speaker:{speaker}"
-    return group
+        return f"speaker:{speaker}", attribute in WORK_ATTRIBUTES
+    return group, False
+
+
+# ---- personal statements: first-person facts about the speaker's life
+_OBJ = r"(?P<obj>(?:[a-z][\w\-]*\s+){0,2}[a-z][\w\-]*)"
+_PERSONAL: List[Tuple[str, re.Pattern, str]] = [
+    ("location", re.compile(r"\b(?:i|we)(?:'ve| have)?\s+(?:just\s+|recently\s+|finally\s+)?(?:moved|relocated|"
+                            r"am moving|'m moving|are moving|'re moving)\s+(?:back\s+)?(?:to|in)\b", re.I), "home"),
+    ("location", re.compile(r"\b(?:i|we)(?:'m|'re| am| are)?\s+(?:now\s+)?(?:live|living|based|staying)\s+in\b", re.I),
+     "home"),
+    ("preference", re.compile(r"\bi(?:'m| am)\s+(?:now\s+|still\s+|no longer\s+|not\s+)?(?:a\s+)?(?:vegetarian|vegan|"
+                              r"pescatarian|allergic|lactose|gluten|teetotal)\w*", re.I), "diet"),
+    ("preference", re.compile(r"\bi\s+(?:really\s+|now\s+|still\s+|actually\s+)?(?:love|like|prefer|enjoy|hate|dislike|"
+                              r"can't stand|don't like|no longer like)\s+" + _OBJ, re.I), ""),
+    ("preference", re.compile(r"\bmy\s+favou?rite\s+" + _OBJ, re.I), ""),
+    ("relationship", re.compile(r"\bmy\s+(?P<obj>wife|husband|partner|girlfriend|boyfriend|fianc[eé]e?|son|daughter|"
+                                r"kids?|mom|mum|dad|mother|father|sister|brother|boss|roommate|best friend)\b", re.I), ""),
+    ("relationship", re.compile(r"\bi(?:'m| am| got| just got)\s+(?:engaged|married|divorced|single)\b|\bwe broke up\b",
+                                re.I), "relationship status"),
+    ("possession", re.compile(r"\b(?:i|we)\s+(?:just\s+|finally\s+)?(?:bought|got|adopted|own|sold)\s+(?:a|an|my|our|the)\s+"
+                              r"(?:new\s+|second\s+|used\s+)?" + _OBJ, re.I), ""),
+    ("role", re.compile(r"\bi\s+(?:now\s+)?(?:work|am working|'m working)\s+(?:as|at|for)\b|\bi\s+(?:got promoted|"
+                        r"started a new job|got a new job|quit my job|lost my job|got hired|retired)\b|\bmy\s+(?:new\s+)?job\b",
+                        re.I), "job"),
+    ("schedule", re.compile(r"\bi\s+(?:have|'ve got)\s+(?:a|an|my)\s+(?P<obj>appointment|class|flight|exam|interview|"
+                            r"shift|lesson|practice|session)\b", re.I), ""),
+    ("plan", re.compile(r"\bi(?:'m| am)\s+(?:planning|thinking about|hoping|saving up)\s+(?:to\s+|for\s+)?" + _OBJ, re.I), ""),
+]
+_PERSONAL_SKIP = {"it", "this", "that", "them", "you", "one", "lot", "bit", "question", "minute", "chance", "feeling",
+                  "idea", "time", "call", "meeting", "sec", "second", "moment", "look", "go", "try"}
+_ANYMORE = re.compile(r"\b(?:no longer|anymore|any more|not .{0,20} anymore|stopped|quit|gave up)\b", re.I)
+
+
+def personal_fact(text: str) -> Tuple[str, str, Optional[re.Match]]:
+    """(attribute, subject, match) for a first-person statement about the speaker's own life
+    ("i'm vegetarian now", "we got a puppy", "I moved to Pune"), else ("", "", None)."""
+    for attribute, pat, subject in _PERSONAL:
+        m = pat.search(text or "")
+        if not m:
+            continue
+        if not subject:
+            obj = (m.groupdict().get("obj") or "").lower().split()
+            obj = [w for w in obj if w not in STOPWORDS]
+            if not obj or obj[0] in _PERSONAL_SKIP:
+                continue
+            subject = " ".join(obj[:2]) if attribute != "preference" else obj[-1]
+            if attribute == "preference" and "favo" in m.group(0).lower():
+                subject = f"favourite {obj[0]}"
+        return attribute, subject, m
+    return "", "", None
 
 
 def _clause(text: str, m: re.Match, width: int = 120) -> str:
@@ -183,6 +265,15 @@ class HeuristicExtractor:
         # the speaker's own name is who said it, not what it is about
         me = (m.speaker or "").lower()
         ents = tuple(e for e in entities(text) if e != me)
+        if not text.rstrip().endswith("?"):
+            attribute, subject, hit = personal_fact(text)
+            if hit is not None:
+                holder, _ = holder_of(text, m.speaker, m.channel, attribute, personal=True)
+                return [StateRecord(
+                    msg_id=m.id, speaker=m.speaker, modality="state", attribute=attribute,
+                    value=_clause(text, hit), subject=subject, entities=ents, timestamp=m.timestamp,
+                    replaces_cue=bool(_REPLACE.search(text) or _ANYMORE.search(text)), holder=holder,
+                )]
         modality, hit = "info", None
         for name, pat in _CUES:
             hit = pat.search(text)
@@ -223,11 +314,16 @@ class HeuristicExtractor:
         if m.meta.get("phase_name"):  # benchmarks that expose a work phase (GroupMemBench)
             subject = str(m.meta["phase_name"])
         else:
-            phrase = topic_phrase(text, ents)
+            heads = set(np_heads(text))  # noun-phrase heads are topics, not values
+            phrase = topic_phrase(text, [e for e in ents if e not in heads])
             subject = f"{m.channel}/{phrase}" if phrase else str(m.channel or "")
-        named = named_holders(text, m.speaker) if attribute not in GROUP_ATTRIBUTES else ()
+        named = named_holders(text, m.speaker) if attribute not in ("owner", "status") else ()
+        holder, group_rule = holder_of(text, m.speaker, m.channel, attribute)
+        meta: Dict[str, Any] = {"named": list(named)} if named else {}
+        if group_rule:
+            meta["group_in_group_chat"] = True
         return [StateRecord(
             msg_id=m.id, speaker=m.speaker, modality=modality, attribute=attribute, value=value,
             subject=subject, entities=ents, timestamp=m.timestamp, replaces_cue=replaces,
-            holder=holder_of(text, m.speaker, m.channel, attribute), meta={"named": list(named)} if named else {},
+            holder=holder, meta=meta,
         )]

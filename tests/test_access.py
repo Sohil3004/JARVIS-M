@@ -65,9 +65,13 @@ def test_policy_levels_roles_markers_and_principals():
     assert p == Principal("Ann", 4, frozenset({"hr"}), False)
     assert pol.principal("Ann", {"role": "manager", "level": "intern"}).level == 1  # level wins over role
     assert join(Label(1, frozenset("a")), Label(3, frozenset("b"))) == Label(3, frozenset("ab"))
-    assert build_access(None) is None
-    ac = build_access({"policy": ACCESS, "mode": "prod", "signal_hidden_updates": True})
-    assert ac.policy.signal_hidden_updates and ac.policy.level("exec") == 5
+    assert build_access("off") is None and build_access(False) is None
+    assert build_access(None).policy.mode == "auto" and build_access(True).policy.mode == "on"
+    ac = build_access({"policy": ACCESS, "final_check": "prod", "signal_hidden_updates": True})
+    assert ac.policy.signal_hidden_updates and ac.policy.level("exec") == 5 and ac.policy.mode == "auto"
+    assert build_access({"policy": ACCESS, "mode": "debug"}).policy.final_check == "debug"  # the old meaning of mode
+    with pytest.raises(ValueError, match="access mode"):
+        AccessPolicy(mode="sometimes")
 
 
 def test_labels_only_go_up_and_replies_inherit():
@@ -170,7 +174,7 @@ def test_no_signal_of_hidden_updates_by_default(toy_enterprise):
 def test_final_check_raises_in_debug_and_filters_in_prod(toy_enterprise, monkeypatch, caplog):
     ds = toy_enterprise
     for mode in ("debug", "prod"):
-        monkeypatch.setenv("JARVIS_ACCESS_MODE", mode)
+        monkeypatch.setenv("JARVIS_ACCESS_CHECK", mode)
         mem = _mem(ds)
         # simulate a bug upstream of the final check: the view lets everything through
         n = len(mem.messages)
@@ -182,7 +186,7 @@ def test_final_check_raises_in_debug_and_filters_in_prod(toy_enterprise, monkeyp
             r = _ask(mem, ds, "acme/q0")
             ok = mem.readable(mem.principal("Bob"))
             assert all(ok[mem.graph.id2node[i]] for i in r.source_ids)
-            assert r.audit["filtered"] > 0 and r.audit["mode"] == "prod" and "withheld" in caplog.text
+            assert r.audit["filtered"] > 0 and r.audit["final_check"] == "prod" and "withheld" in caplog.text
         monkeypatch.undo()
 
 
@@ -197,7 +201,7 @@ def test_baselines_enforce_too(toy_enterprise):
             assert all(ok[i] for i in (next(j for j, m in enumerate(mem.messages) if m.id == s) for s in r.source_ids))
             assert r.audit["visible"] == ok.sum()
         assert mem.retrieve("x", asker="Zed").items == []  # inactive: nothing
-    off = build_memory({"type": "bm25"})
+    off = build_memory({"type": "bm25", "access": "off"})
     off.ingest(ds.conversations["acme"].messages)
     assert off.retrieve("x").audit == {"mode": "off"} and off.principal("Bob") is None
 
@@ -364,9 +368,9 @@ def test_rank_eval_leak_rate(tmp_path):
     assert on["datasets"][0]["scorers"]["seeds"]["leak_rate"] == 0.0
     assert off["datasets"][0]["scorers"]["seeds"]["leak_rate"] > 0
     assert on["macro"]["seeds"]["leak_rate"] == 0.0
-    plain = rank_eval({"memory": {k: v for k, v in mem.items() if k != "access"}, "datasets": ds,
+    plain = rank_eval({"memory": {**mem, "access": "off"}, "datasets": ds,
                        "bootstrap": {"n": 50}}, progress=False)
-    assert plain["datasets"][0]["scorers"]["seeds"]["leak_rate"] is None  # no policy: not measured
+    assert plain["datasets"][0]["scorers"]["seeds"]["leak_rate"] is None  # access control off: not measured
     from jarvis_m.eval.rank_eval import to_markdown
 
     assert "leak_rate" in to_markdown(on)
@@ -381,4 +385,4 @@ def test_runner_passes_audience_and_records_audit(tmp_path):
     rows = [yaml.safe_load(line) for line in (out / "results.jsonl").read_text().splitlines()]
     by = {r["qid"]: r for r in rows}
     assert by["acme/q2"]["audit"]["principal"]["members"] == ["Bob", "Mira"]
-    assert by["acme/q8"]["audit"]["audience"] == "eng" and by["acme/q0"]["audit"]["mode"] == "debug"
+    assert by["acme/q8"]["audit"]["audience"] == "eng" and by["acme/q0"]["audit"]["final_check"] == "debug"

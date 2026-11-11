@@ -15,12 +15,20 @@ MODALITIES = (
     "done",        # something was completed / resolved
     "blocker",     # a problem is open
     "negated",     # explicitly not / no longer
+    "state",       # a current fact about the holder: lives in, prefers, owns, works as, is vegetarian
     "proposal",    # suggestion, not settled
     "question",
     "info",
 )
 # Modalities that set the current value of a (subject, attribute) slot.
-STATEFUL = frozenset({"decision", "commitment", "done", "negated", "blocker"})
+STATEFUL = frozenset({"decision", "commitment", "done", "negated", "blocker", "state"})
+# What a slot can be about (the LLM extractor's attribute set; the heuristic uses a subset).
+ATTRIBUTES = ("decision", "deadline", "owner", "status", "plan", "requirement", "preference", "location",
+              "relationship", "possession", "role", "schedule", "info")
+# Work state: group-held in a group chat even when stated in the first person ("I'll take load
+# testing" sets the task's owner, and the next owner must be able to supersede it). In a DM, and
+# for personal statements ("my visa got approved"), first-person facts belong to the speaker.
+WORK_ATTRIBUTES = frozenset({"owner", "status", "deadline", "decision"})
 
 
 def holder_key(holder: str) -> str:
@@ -38,7 +46,7 @@ class StateRecord:
     msg_id: str
     speaker: str
     modality: str
-    attribute: str  # decision | deadline | owner | status | plan | info ...
+    attribute: str  # one of ATTRIBUTES
     value: str
     subject: str = ""  # what the slot is about ("backend hosting", phase name, ...)
     entities: Tuple[str, ...] = ()

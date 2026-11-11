@@ -59,7 +59,8 @@ class LegacyV2Memory(MemorySystem):
     def state_header(self) -> str:
         return self.engine.format_reconciled_prefix()
 
-    def retrieve(self, query, *, asker=None, budget_tokens=None, max_items=None, now=None, audience=None) -> Retrieval:
+    def retrieve(self, query, *, asker=None, budget_tokens=None, max_items=None, now=None, audience=None,
+                 channel=None) -> Retrieval:
         header = self.state_header()
         gt = self.engine.get_reconciled_ground_truth()
         src = tuple(

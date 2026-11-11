@@ -1,7 +1,8 @@
 """HypergraphMemory: hybrid seeds -> hyperedge expansion -> fixed or learned
 propagation -> version-aware ranking -> packed context (+ optional state header).
 
-With ``access:`` set, every step works on the effective principal's view of the graph:
+When access control is in force (``access:``, default ``mode: auto``), every step works on
+the effective principal's view of the graph:
 seeds, expansion, features, slot state, the state header and packing only ever touch
 messages that principal may read, and a final check re-tests everything that is returned.
 """
@@ -62,7 +63,8 @@ class HypergraphMemory(HybridMemory):
         if self.access is not None:
             # labels come from the policy; a channel with no membership list is readable by
             # everyone cleared for the label, so other channels may read its slot state
-            self.graph_kw.update(labeler=self.access.policy.base_label, open_channel=self.access.directory.is_open)
+            self.graph_kw.update(labeler=self.access.policy.base_label, open_channel=self.access.directory.is_open,
+                                 channel_size=self._directory_size)
         self.edge_types = tuple(edge_types)
         self.graph = Hypergraph(**self.graph_kw)
         self.n_seeds, self.max_candidates, self.max_edge_size = n_seeds, max_candidates, max_edge_size
@@ -74,6 +76,11 @@ class HypergraphMemory(HybridMemory):
             self.scorer  # noqa: B018 - load (and validate) the checkpoint now, before ingesting anything
         self.state_header, self.header_share = state_header, header_share
         self.last_subgraph: Optional[Subgraph] = None
+
+    def _directory_size(self, channel: str) -> Optional[int]:
+        """Members of a closed channel the directory lists (None: count who wrote there)."""
+        members = self.access.directory.members(channel) if self.access.directory.known(channel) else None
+        return None if members is None else len(members)
 
     # ---------------------------------------------------------------- lifecycle
     def reset(self) -> None:
@@ -131,8 +138,8 @@ class HypergraphMemory(HybridMemory):
         return self.graph.view(self._candidates(asker, principal))
 
     def subgraph(self, query: str, asker: Optional[str] = None, now: Optional[float] = None,
-                 view: Optional[GraphView] = None, audience: Any = None) -> Subgraph:
-        view = view or self.view(asker, self.principal(asker, audience))
+                 view: Optional[GraphView] = None, audience: Any = None, channel: Optional[str] = None) -> Subgraph:
+        view = view or self.view(asker, self.principal(asker, audience, channel))
         mask, idx = view.mask, view.nodes
         base_all = np.zeros(len(self.messages), dtype=np.float64)
         if len(idx):
@@ -153,7 +160,9 @@ class HypergraphMemory(HybridMemory):
         return self.dense.matrix[nodes]
 
     # ---------------------------------------------------------------- retrieve
-    def retrieve(self, query, *, asker=None, budget_tokens=None, max_items=None, now=None, audience=None) -> Retrieval:
+    def retrieve(self, query, *, asker=None, budget_tokens=None, max_items=None, now=None, audience=None,
+                 channel=None) -> Retrieval:
+        audience = self.audience_for(asker, audience, channel)
         principal = self.principal(asker, audience)
         if not self.messages:
             return Retrieval([], "", 0, {}, self._audit(principal, asker, audience))
@@ -166,7 +175,8 @@ class HypergraphMemory(HybridMemory):
         scores = np.asarray(self.scorer(sg, (self, query, asker)), dtype=np.float64)
         order = np.argsort(-scores, kind="stable")
         ranked = [(int(sg.nodes[i]), float(scores[i])) for i in order if np.isfinite(scores[i])]
-        enforce = self.access is not None and self.access.policy.enforce
+        enforce = principal is not None and self.access.policy.enforce
+        signal = principal is not None and self.access.policy.signal_hidden_updates
         # final check, part 1: nothing unreadable is ranked (so it cannot be packed or summarised)
         bad = set(self._final_check([v for v, _ in ranked], principal))
         if bad and enforce:
@@ -175,7 +185,7 @@ class HypergraphMemory(HybridMemory):
         header, header_nodes = "", []
         if self.state_header:
             cap = int(budget_tokens * self.header_share) if budget_tokens else None
-            header, header_nodes = self._state_header(view, [v for v, _ in ranked[: (max_items or 10)]], cap)
+            header, header_nodes = self._state_header(view, [v for v, _ in ranked[: (max_items or 10)]], cap, signal)
             # final check, part 2: the header only quotes messages the principal may read
             bad_header = self._final_check(header_nodes, principal)
             if bad_header and enforce:
@@ -197,7 +207,7 @@ class HypergraphMemory(HybridMemory):
         if header:
             items.insert(0, RetrievedItem(header, 1.0, (), "state"))
         signals = 0
-        if self.access is not None and self.access.policy.signal_hidden_updates:
+        if signal:
             signals = len(self._hidden_updates(view, [v for v, _ in kept]))
             if signals and not header:
                 items.append(RetrievedItem(f"[Note: {HIDDEN_UPDATE_NOTE}]", 0.0, (), "notice"))
@@ -223,15 +233,14 @@ class HypergraphMemory(HybridMemory):
                 out.add(c)
         return out
 
-    def _state_header(self, view: GraphView, nodes: Sequence[int], cap: Optional[int]):
+    def _state_header(self, view: GraphView, nodes: Sequence[int], cap: Optional[int], signal: bool = False):
         """Current value (+ earlier values) of every slot touched by ``nodes``, most
         relevant first, within ``cap`` tokens; the first slot is always kept. Slots are the
         viewer's: the current value is the latest version the viewer can see. Returns the
         header and the nodes it quotes."""
         g = self.graph
         lines, seen, quoted = ["[Current state of topics in these messages]"], set(), []
-        flagged = (self._hidden_updates(view, nodes)
-                   if self.access is not None and self.access.policy.signal_hidden_updates else set())
+        flagged = self._hidden_updates(view, nodes) if signal else set()
         for v in nodes:
             c = int(view.chain_of[v])
             if c < 0 or c in seen:
