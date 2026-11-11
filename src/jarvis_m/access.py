@@ -190,6 +190,8 @@ class AccessPolicy:
         self.levels = tuple(self.levels)
         if len(set(self.levels)) != len(self.levels) or not self.levels:
             raise ValueError("levels must be a non-empty list of distinct names")
+        if isinstance(self.mode, bool):  # YAML 1.1 reads unquoted off/on as booleans
+            self.mode = "on" if self.mode else "off"
         if self.mode in ("prod", "debug"):  # before mode meant the final check
             self.final_check, self.mode = self.mode, "auto"
         if self.mode not in ("off", "auto", "on"):

@@ -386,3 +386,13 @@ def test_runner_passes_audience_and_records_audit(tmp_path):
     by = {r["qid"]: r for r in rows}
     assert by["acme/q2"]["audit"]["principal"]["members"] == ["Bob", "Mira"]
     assert by["acme/q8"]["audit"]["audience"] == "eng" and by["acme/q0"]["audit"]["final_check"] == "debug"
+
+
+def test_yaml_unquoted_off_on_mode():
+    import yaml
+
+    from jarvis_m.access import build_access
+
+    assert build_access(yaml.safe_load("mode: off")) is None
+    assert build_access(yaml.safe_load("mode: on")).policy.mode == "on"
+    assert build_access(yaml.safe_load("mode: auto")).policy.mode == "auto"
