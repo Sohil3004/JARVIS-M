@@ -39,6 +39,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from ..data.loaders import load_dataset
 from ..extract import build_extractor
 from ..extract.records import STATEFUL, StateRecord, holder_key
+from ..memory import for_dataset
 from ..text import word_tokens
 from ..types import GROUP_MIN_PARTICIPANTS, Conversation
 
@@ -120,12 +121,12 @@ def extract_eval(cfg: Dict[str, Any], label_paths: Optional[Sequence[str]] = Non
     by: Dict[Tuple[str, str], List[Dict[str, Any]]] = defaultdict(list)
     for r in rows:
         by[(r["dataset"], r["conversation_id"])].append(r)
-    extractor = build_extractor(cfg.get("extractor") or {"type": "heuristic"})
     out: Dict[str, Any] = {"labels": [str(p) for p in paths], "extractor": cfg.get("extractor"), "datasets": []}
     for dcfg in cfg["datasets"]:
         dcfg = dict(dcfg)
         label = dcfg.get("label") or dcfg["name"]
         ds = load_dataset(dcfg)
+        extractor = build_extractor(for_dataset(cfg.get("extractor") or {"type": "heuristic"}, ds.name))
         n_gold = n_matched = n_none = n_spurious = n_conv = unknown = 0
         correct = Counter()
         pred_clusters: Dict[Any, Counter] = defaultdict(Counter)  # predicted subject -> gold subjects

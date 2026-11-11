@@ -5,7 +5,8 @@ Task: `docs/prompts/generalise_v1.md` (phases A–C) and its addendum
 All numbers on this page are CPU numbers (hashing embedder, heuristic extractor). They
 are for before/after comparison only, not for the paper.
 
-Tests: 75 passed + 4 xfailed before phase A; 142 passed + 4 xfailed after phase C.
+Tests (CPU, torch installed, nothing skipped): 75 passed + 4 xfailed before phase A; 142 + 4
+after phase C; 164 + 4 after phase D; 178 + 4 after phase E; 180 + 4 after phase F.
 
 ## Phase A: measurement infrastructure
 
@@ -546,3 +547,46 @@ on LoCoMo and LongMemEval, the expected sign of a tiny template-only training ru
   has not been run.
 * EverMemBench, ConvoMem and SocialMemBench are loaded and tested on excerpts; they are not
   in the training mix (licence and size decisions for the user, see the final notes).
+
+## Phase F: docs and handover
+
+### What changed
+
+* `docs/HYPERGRAPH.md`: the stale "Real-data transfer" table is replaced by a pointer to
+  `results/rank/real_v2.md` (the old diagnosis stays as history); new sections on holders,
+  viewer-relative state, edge-size consistency and the feature list; `mention` edges in the
+  design table.
+* `docs/ACCESS_CONTROL.md`: `mode: off | auto | on`, why participant count never switches
+  enforcement off, the group-chat default audience, the DM / group holder rule,
+  per-conversation directories, `final_check` / `JARVIS_ACCESS_CHECK`, the measured leak
+  rate. `configs/access/default.yaml` follows.
+* `docs/RUNBOOK_generalise.md`: data generation and the seven GPU steps (extraction,
+  baseline rank-eval, three seeds, LODO, rank-eval with significance, supersession eval,
+  an end-to-end smoke run), with VRAM, measured workloads and estimated times.
+* `extract` takes an eval or train config and extracts every listed dataset into its own
+  cache (`--only LABEL` to pick); `extractor.path` may contain `{dataset}`, so one
+  rank-eval, supersession-eval, training or run config reads each dataset's cache.
+* The runbook's step 7 (with a stub reader and judge, hashing embedder), the multi-dataset
+  `extract` and the `{dataset}` override were run on CPU.
+
+### Tests added
+
+`tests/test_supersession_lodo.py`: the `{dataset}` path, and `extract` over a `datasets:`
+list with `--only`.
+
+### Decisions
+
+* **Extraction time is an estimate, not a measurement**: there is no GPU here. The workload
+  (calls, prompt characters, target messages, cache hits) is measured with a stub model;
+  the rates are stated assumptions; the runbook says to calibrate on the first 400
+  messages, which `extract` reports.
+* **LongMemEval-S extraction is split** into the test split (evaluation) and the train split
+  (only for an LLM-record training run), because extracting all 500 haystacks is ~88 hours
+  with transformers + bitsandbytes at the assumed rate.
+
+### Not done
+
+* No GPU step was run: Qwen extraction, Qwen3-Embedding rank-eval, HGNN training, LODO,
+  paraphrasing, reader + judge runs.
+* No hand-labelled supersession pairs or slots exist yet for LoCoMo, LongMemEval or
+  WhatsApp, so supersession and extraction quality on real chats are unmeasured.

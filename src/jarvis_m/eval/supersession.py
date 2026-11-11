@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from ..data.loaders import load_dataset
-from ..memory import build_memory
+from ..memory import build_memory, for_dataset
 
 LABELS = ("supersedes", "same_slot_no_change", "unrelated")
 DEFAULT_LABEL_DIR = "data/labels/supersession"
@@ -98,7 +98,7 @@ def supersession_eval(cfg: Dict[str, Any], label_paths: Optional[Sequence[str]] 
             n_conv += 1
             ids = {m.id for m in conv.messages}
             unknown += sum(1 for a, b in lab if a not in ids or b not in ids)
-            mem = build_memory(mem_cfg, cfg.get("tokenizer"))
+            mem = build_memory(for_dataset(mem_cfg, ds.name), cfg.get("tokenizer"))
             mem.reset()
             mem.ingest(conv.messages)
             c = score_pairs(mem.graph.superseding_pairs(), lab)

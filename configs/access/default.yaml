@@ -1,10 +1,16 @@
 # Access-control policy (docs/ACCESS_CONTROL.md). Use it from a memory config:
 #   memory: {type: hypergraph, access: configs/access/default.yaml, idf_scope: view}
 # or with overrides:
-#   memory: {type: hypergraph, access: {policy: configs/access/default.yaml, mode: debug}}
+#   memory: {type: hypergraph, access: {policy: configs/access/default.yaml, final_check: debug}}
+# Without any `access:` setting a memory runs mode auto with the built-in policy.
 # Channel membership and principals come from the dataset (annotations "channels" and
 # "principals") or from memory.configure_access(channels=..., principals=...).
 access:
+  # off: no access control (benchmarks, ablations) | auto: enforce whenever any channel
+  # directory, principal, channel default, marker or message label exists, otherwise a no-op |
+  # on: always, and raise if there is no metadata. Never switched off by participant count.
+  mode: auto
+
   # Clearance levels, lowest first. A principal reads a message when its level is at least
   # the message's level (and it holds every compartment of the message).
   levels: [public, intern, L1, L2, manager, exec]
@@ -58,9 +64,9 @@ access:
   use_extractor_suggestions: true
 
   # Final check before anything is returned: "prod" filters and logs, "debug" raises
-  # AccessViolation. The environment variable JARVIS_ACCESS_MODE overrides this (the test
+  # AccessViolation. The environment variable JARVIS_ACCESS_CHECK overrides this (the test
   # suite sets it to debug).
-  mode: prod
+  final_check: prod
 
   # false = measurement only: labels and audit are computed, nothing is filtered. Used to
   # measure what an unprotected system would leak (rank-eval leak_rate). Never in production.

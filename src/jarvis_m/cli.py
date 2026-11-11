@@ -72,10 +72,13 @@ def main(argv=None) -> int:
                          "<out dir>/labels/supersession for an --out outside data/stress)")
 
     ex = sub.add_parser("extract", help="offline (LLM) state extraction for an experiment's dataset, resumable")
-    ex.add_argument("config", help="experiment yaml (its `dataset:` is used)")
+    ex.add_argument("config", help="experiment yaml (its `dataset:`) or eval / train yaml (every entry of `datasets:`, "
+                                   "`train_data:` and `dev_data:`)")
+    ex.add_argument("--only", action="append", default=None, metavar="LABEL",
+                    help="with a `datasets:` list: only these labels (repeatable)")
     ex.add_argument("--extractor", required=True, metavar="YAML", help="file with a top-level `extractor:` block")
     ex.add_argument("--set", dest="overrides", action="append", default=[], metavar="KEY=VALUE")
-    ex.add_argument("--out", default=None, help="cache path (default data/extract/<dataset>/<name>.jsonl)")
+    ex.add_argument("--out", default=None, help="cache path, one dataset only (default data/extract/<dataset>/<name>.jsonl)")
 
     th = sub.add_parser("train-hgnn", help="train the HGNN scorer on gold-evidence labels")
     th.add_argument("config")
@@ -255,18 +258,36 @@ def main(argv=None) -> int:
 
 
 def _extract(a) -> int:
-    import time
-
     from .config import apply_overrides, load_config
-    from .data.loaders import load_dataset
-    from .extract import ExtractionStore, build_extractor
 
     ecfg = apply_overrides(load_config(a.extractor), a.overrides)
     if "extractor" not in ecfg:
         raise SystemExit(f"{a.extractor} has no top-level `extractor:` block")
-    ds = load_dataset(load_config(a.config)["dataset"])
-    name = ecfg.get("name", Path(a.extractor).stem)
-    out = Path(a.out or Path("data/extract") / ds.name / f"{name}.jsonl")
+    cfg = load_config(a.config)
+    if "dataset" in cfg:
+        entries = [cfg["dataset"]]
+    else:
+        entries = [*(cfg.get("datasets") or []), *(cfg.get("train_data") or []), *(cfg.get("dev_data") or [])]
+        if a.only:
+            entries = [e for e in entries if (e.get("label") or e.get("name")) in set(a.only)]
+    if not entries:
+        raise SystemExit(f"{a.config}: no `dataset:` or `datasets:` entries to extract")
+    if a.out and len(entries) > 1:
+        raise SystemExit("--out needs a single dataset (use --only)")
+    for entry in entries:
+        _extract_one(entry, ecfg, Path(a.extractor).stem, a.out)
+    return 0
+
+
+def _extract_one(dcfg, ecfg, default_name, out_path) -> None:
+    import time
+
+    from .data.loaders import load_dataset
+    from .extract import ExtractionStore, build_extractor
+
+    ds = load_dataset(dcfg)
+    name = ecfg.get("name", default_name)
+    out = Path(out_path or Path("data/extract") / ds.name / f"{name}.jsonl")
     store = ExtractionStore(out)
     done = store.done()
     xcfg = dict(ecfg["extractor"])
@@ -275,7 +296,7 @@ def _extract(a) -> int:
         xcfg.setdefault("registry_path", str(store.registry_path))
     extractor = build_extractor(xcfg)
     total = sum(len(c.messages) for c in ds.conversations.values())
-    print(f"[extract] {ds.name}: {total} messages, {len(done)} already in {out}")
+    print(f"[extract] {dcfg.get('label') or ds.name}: {total} messages, {len(done)} already in {out}")
     t0, n_done = time.perf_counter(), [0]
 
     def on_batch(recs, ids):
@@ -299,8 +320,7 @@ def _extract(a) -> int:
         print(f"[extract] {extractor.batches} batches, {extractor.cache_hits} from the batch cache "
               f"(hit rate {extractor.hit_rate():.1%}), {extractor.calls} LLM calls; "
               f"{len(done)} messages were already in the cache")
-    print(f"[extract] done -> {out}  (use memory.extractor: {{type: cached, path: {out.as_posix()}}})")
-    return 0
+    print(f"[extract] done -> {out}  (memory.extractor: {{type: cached, path: data/extract/{{dataset}}/{name}.jsonl}})")
 
 
 def _judge(run_dirs, judge_yaml, overrides, force) -> int:

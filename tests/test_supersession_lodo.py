@@ -153,3 +153,31 @@ def test_extract_eval_fields_purity_and_spurious(tmp_path, write_json):
     with pytest.raises(ValueError, match="missing"):
         bad = write_json("bad.jsonl", [{"dataset": "x", "conversation_id": "c", "msg_id": "m"}], lines=True)
         extract_eval({"datasets": []}, [str(bad)], progress=False)
+
+
+def test_extractor_cache_path_per_dataset():
+    from jarvis_m.memory import for_dataset
+
+    cfg = {"type": "hypergraph", "extractor": {"type": "cached", "path": "data/extract/{dataset}/q.jsonl"}}
+    assert for_dataset(cfg, "locomo")["extractor"]["path"] == "data/extract/locomo/q.jsonl"
+    assert cfg["extractor"]["path"].endswith("{dataset}/q.jsonl")  # the input is not changed
+    assert for_dataset({"type": "cached", "path": "x/{dataset}.jsonl"}, "d")["path"] == "x/d.jsonl"
+    assert for_dataset({"type": "bm25"}, "d") == {"type": "bm25"}
+
+
+def test_extract_cli_over_a_datasets_list(tmp_path, monkeypatch):
+    from jarvis_m.cli import main
+    from jarvis_m.data.stress_v2 import generate_v2
+
+    monkeypatch.chdir(tmp_path)
+    for d in ("team", "personal"):
+        save(generate_v2(2, split="dev", domain=d), tmp_path / f"{d}.json")
+    (tmp_path / "eval.yaml").write_text(yaml.safe_dump({"datasets": [
+        {"label": "T", "domain": "team", "name": "jarvis", "path": str(tmp_path / "team.json")},
+        {"label": "P", "domain": "personal", "name": "jarvis", "path": str(tmp_path / "personal.json")}]}))
+    (tmp_path / "h.yaml").write_text("name: heur\nextractor: {type: heuristic}\n")
+    assert main(["extract", "eval.yaml", "--extractor", "h.yaml", "--only", "P"]) == 0
+    assert (tmp_path / "data/extract/statebench_v2_personal_dev/heur.jsonl").exists()
+    assert not (tmp_path / "data/extract/statebench_v2_team_dev").exists()
+    assert main(["extract", "eval.yaml", "--extractor", "h.yaml"]) == 0
+    assert (tmp_path / "data/extract/statebench_v2_team_dev/heur.jsonl").exists()

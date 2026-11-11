@@ -54,6 +54,20 @@ def build_counter(cfg: Any = None):
     raise ValueError(f"bad tokenizer config {cfg!r}")
 
 
+def for_dataset(cfg: Dict[str, Any], dataset_name: str) -> Dict[str, Any]:
+    """A memory (or extractor) config for one dataset: ``{dataset}`` in ``extractor.path`` (or
+    ``path``) becomes the dataset's name, so one rank-eval / supersession-eval / training
+    config can read each dataset's own extraction cache
+    (``data/extract/{dataset}/qwen3_4b.jsonl``, the default output of ``jarvis-eval extract``)."""
+    cfg = dict(cfg)
+    if isinstance(cfg.get("path"), str) and "{dataset}" in cfg["path"]:
+        cfg["path"] = cfg["path"].replace("{dataset}", dataset_name)
+    ex = cfg.get("extractor")
+    if isinstance(ex, dict) and isinstance(ex.get("path"), str) and "{dataset}" in ex["path"]:
+        cfg["extractor"] = {**ex, "path": ex["path"].replace("{dataset}", dataset_name)}
+    return cfg
+
+
 def build_memory(cfg: Dict[str, Any], tokenizer: Any = None) -> MemorySystem:
     cfg = dict(cfg)
     kind = cfg.pop("type")
@@ -65,4 +79,4 @@ def build_memory(cfg: Dict[str, Any], tokenizer: Any = None) -> MemorySystem:
     return mem
 
 
-__all__ = ["REGISTRY", "register", "build_memory", "build_counter"]
+__all__ = ["REGISTRY", "register", "build_memory", "build_counter", "for_dataset"]

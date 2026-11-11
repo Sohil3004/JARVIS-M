@@ -21,7 +21,7 @@ import numpy as np
 
 from ...access import conversation_directory
 from ...data.loaders import dataset_domain, load_dataset
-from .. import build_memory
+from .. import build_memory, for_dataset
 from .subgraph import FEATURE_NAMES, fixed_propagation
 
 
@@ -67,7 +67,7 @@ def build_examples(memory_cfg: Dict[str, Any], datasets: Sequence[Dict[str, Any]
             stats["questions"] += len(ds.questions_for(cid))
             if not qs:
                 continue
-            mem = build_memory(memory_cfg, tokenizer)
+            mem = build_memory(for_dataset(memory_cfg, ds.name), tokenizer)
             mem.reset()
             mem.configure_access(conversation_directory(ds.annotations, cid))
             mem.ingest(conv.messages)

@@ -14,7 +14,11 @@ version history of a topic instead of matching isolated messages.
 | `channel` | everyone in a group/DM | channel | scope, access control (product) |
 | `speaker` | everything one person said | author | personal trajectory, "my …" questions |
 | `entity` | messages mentioning one entity | extractor | joins across threads/channels |
-| `version` | successive values of one (topic, attribute) slot | extractor | knowledge updates |
+| `version` | successive values of one (holder, topic, attribute) slot | extractor | knowledge updates |
+| `mention` | messages that name one participant | speaker names | "what did Priya say about …", theory-of-mind (HGNN only; weight 0 in the fixed scorer) |
+
+All hyperedges are built per viewer from the messages that viewer may read (see
+"Viewer-relative state" below).
 
 Version chains: a new value marks earlier ones `superseded`; a negation ("we are
 *not* moving to X") joins the slot but never becomes current; a completion resolves
@@ -75,12 +79,11 @@ What this says so far:
 
 ## Real-data transfer
 
-The learned scorer did not transfer from StateBench (MRR 0.76 → 0.93 there) to real chat:
-
-| Set | hybrid | fixed | HGNN |
-| --- | --- | --- | --- |
-| LoCoMo (zero-shot) | 0.298 | 0.265 | 0.309 |
-| LongMemEval held-out 100 | 0.708 | – | 0.53–0.60 |
+The current real-data numbers, from the v2 baseline, are in `results/rank/real_v2.md`
+(`.json` next to it). The v1 checkpoints in that file predate the graph and feature
+changes below and are rejected by the current code; retrain before comparing
+(`docs/RUNBOOK_generalise.md`). History of the first transfer attempt (v1 checkpoint on
+LoCoMo and the LongMemEval held-out split):
 
 On LongMemEval, knowledge-update improved (0.72 → 0.80–0.86) but single-session-assistant
 collapsed (0.70 → 0.31–0.40). Diagnosis:
@@ -133,6 +136,58 @@ Fixed-propagation MRR from that change: StateBench dev 0.777 → 0.821, StateBen
 on LongMemEval it loses on knowledge-update (0.64 vs 0.78 for seeds). The HGNN checkpoints need
 retraining on the new split and graph before their real-data numbers mean anything;
 `jarvis-eval rank-eval configs/eval/rank_real.yaml --checkpoint …` produces the table.
+
+## Holders
+
+A slot is `holder|subject|attribute`. The holder says whose fact it is:
+`speaker:<name>` (`person:<name>` is the same key space), `group:<channel>`, or a named
+third party. Slots never chain across holders, so "I prefer window seats" from two people
+are two slots. Rules (heuristic extractor + graph):
+
+* `my / mine` and personal statements ("I moved to Pune", "i'm vegetarian now"): the
+  speaker. Personal facts use the `state` modality and a canonical subject (`home`,
+  `diet`, the object noun).
+* Work state said in the first person singular (owner, status, deadline, decision): the
+  group in a **group chat** (≥ `GROUP_MIN_PARTICIPANTS` = 3 members or distinct
+  non-assistant speakers), the speaker in a **DM**. The graph decides, from the channel's
+  directory size or its speakers counted over all ingested messages its readers can see,
+  so the result does not depend on ingest order.
+* `we / our / let's`, or no pronoun: the group.
+* A capitalised name used as possessor or subject ("Priya's laptop") becomes the holder
+  only when it is a participant the record's readers know.
+
+## Viewer-relative state
+
+`Hypergraph` stores messages, records and labels and builds version chains, one chain per
+(slot, visibility class), where a class is (channel, level, compartments). A record may
+*read* a chain of a class that every reader of its own class can read, but only *writes*
+to its own class. `GraphView` is one viewer's mask over the nodes: it merges the visible
+chains of each slot in time order, so a viewer's current value is the latest version that
+viewer can see, and it rebuilds every hyperedge, the participants and all features from
+the visible nodes only. Messages that arrive out of order trigger a replay in time order.
+Access control (`docs/ACCESS_CONTROL.md`) supplies the mask; without access metadata the
+mask is everything.
+
+## Edge-size consistency
+
+`build_subgraph` keeps a hyperedge by its members *inside the candidate set*: more than
+`max_edge_size` (60) members there keeps the top ones by base score; version edges keep the
+current value plus the first and last `version_keep_k` (5) values. Expansion follows the
+same rule, so a big edge contributes its best members instead of being skipped, and a
+long chain still pulls its current value in. Linking evidence for chains uses document
+frequency over the last `link_df_window` (500) messages of the channel, not the whole
+chat.
+
+## Features (HGNN input)
+
+`FEATURE_NAMES` (26 features, size-invariant; a checkpoint with other names is rejected):
+
+`base`, `base_rank`, `is_seed`, `is_asker`, `mentions_asker`, `superseded`, `is_current`, `in_chain`, `age_frac`, `log_age_days`, `log_degree`, `historical_query`, `mod_decision`, `mod_commitment`, `mod_done`, `mod_blocker`, `mod_negated`, `mod_state`, `mod_proposal`, `mod_question`, `mod_info`, `first_person_query`, `is_assistant`, `query_mentions_speaker`, `node_mentions_query_person`, `log_n_participants`.
+
+`base_rank` is a percentile inside the subgraph, `age_frac` / `log_age_days` replace raw
+recency, `log_degree` counts edges inside the subgraph, and `log_n_participants`,
+`is_assistant`, `query_mentions_speaker` and `node_mentions_query_person` make the scorer
+role- and chat-size-aware. Code refers to features by name (`FI["is_current"]`).
 
 ## Open questions for the GPU runs
 

@@ -17,7 +17,7 @@ import yaml
 
 from ..access import conversation_directory
 from ..data.loaders import load_dataset
-from ..memory import build_memory
+from ..memory import build_memory, for_dataset
 from .metrics import evidence_recall, is_abstention, mentions_any
 from .qa import DEFERRED, build_judge, build_reader
 from .report import summarize
@@ -63,7 +63,7 @@ def run(cfg: Dict[str, Any], arm: str = "", progress: bool = True) -> Path:
             qs = [q for q in ds.questions_for(cid) if q.id not in done]
             if not qs:
                 continue
-            mem = build_memory(cfg["memory"], cfg.get("tokenizer"))
+            mem = build_memory(for_dataset(cfg["memory"], ds.name), cfg.get("tokenizer"))
             mem.reset()
             mem.configure_access(conversation_directory(ds.annotations, cid))  # channels / principals, if any
             t0 = time.perf_counter()
