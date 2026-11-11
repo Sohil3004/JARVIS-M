@@ -88,3 +88,90 @@ def test_cached_extractor_falls_back(tmp_path):
     with pytest.raises(FileNotFoundError):
         build_extractor({"type": "cached", "path": str(tmp_path / "missing.jsonl")})
     assert build_extractor({"type": "cached", "path": str(tmp_path / "missing.jsonl"), "allow_missing": True})
+
+
+# ---------------------------------------------------------------- phase D: LLM extractor generality
+def _session(cid, sid, texts, speakers=("user", "assistant")):
+    return [Message(f"{cid}:{sid}#{j}", speakers[j % len(speakers)], t, timestamp=float(j), session_id=sid)
+            for j, t in enumerate(texts)]
+
+
+def test_llm_prompt_is_domain_neutral_with_holders_and_chat_type():
+    from jarvis_m.extract.llm_extractor import SYSTEM
+    from jarvis_m.extract.records import ATTRIBUTES
+
+    for word in ("assistant", "personal", "holder", "sensitivity", "KNOWN SUBJECTS", "ONE-TO-ONE", "GROUP"):
+        assert word in SYSTEM
+    assert all(a in SYSTEM for a in ATTRIBUTES)
+    seen = []
+    ex = LLMExtractor(ScriptedChat(lambda s, u: seen.append(u) or "[]"), prefilter="none")
+    ex.extract([_m("We decided to use Kafka.", "a", "Ana"), _m("ok fine with me", "b", "Ben"),
+                _m("sounds good to me", "c", "Cy")])
+    assert seen[0].startswith("CHAT: #eng, GROUP chat (3 participants")
+    ex.extract([_m("I moved to Pune last month.", "d", "user", channel="dm"),
+                _m("Congrats on the move!", "e", "assistant", channel="dm")])
+    assert seen[1].startswith("CHAT: #dm, ONE-TO-ONE chat (1 participant: user)")
+
+
+def test_llm_parses_holder_attribute_and_sensitivity():
+    by = {"m1": _m("[CONFIDENTIAL] I'll take the Acme deal.", "m1", "Ana")}
+    raw = ('[{"msg": "m1", "holder": "group:eng", "subject": "acme deal", "attribute": "owner", "value": "Ana", '
+           '"modality": "commitment", "sensitivity": "L2"}, {"msg": "m1", "holder": "nobody", "attribute": "mood", '
+           '"subject": "x", "value": "y", "modality": "state"}]')
+    a, b = parse_records(raw, by)
+    assert (a.holder, a.attribute, a.meta["sensitivity"]) == ("group:eng", "owner", "L2")
+    assert b.holder == "group:eng" and b.attribute == "info" and b.modality == "state" and b.meta == {}
+
+
+def test_light_prefilter():
+    from jarvis_m.extract.llm_extractor import light_keep
+
+    assert not light_keep(_m("lol ok")) and not light_keep(_m("thanks so much!"))
+    assert light_keep(_m("ok 5pm")) and light_keep(_m("ok Kafka")) and light_keep(_m("i'm vegetarian now actually"))
+    with pytest.raises(ValueError):
+        LLMExtractor(ScriptedChat(), prefilter="maybe")
+
+
+def test_slot_registry_is_in_the_prompt_and_persisted(tmp_path):
+    seen = []
+
+    def fake(system, user):
+        seen.append(user)
+        ids = [line.split(">")[0][1:] for line in user.split("TARGET messages:\n")[1].splitlines()]
+        return json.dumps([{"msg": i, "holder": "group:eng", "subject": f"topic {i}", "attribute": "decision",
+                            "value": "v", "modality": "decision"} for i in ids])
+
+    store = ExtractionStore(tmp_path / "x.jsonl")
+    ex = LLMExtractor(ScriptedChat(fake), batch=1, context=0, prefilter="none", registry_size=2,
+                      cache=store, registry_path=str(store.registry_path))
+    ex.extract([_m(f"We decided on plan number {i}.", f"m{i}") for i in range(4)], on_batch=store.append)
+    assert "KNOWN SUBJECTS" not in seen[0] and "- group:eng: topic m0" in seen[1]
+    assert "- group:eng: topic m1; topic m2" in seen[3]  # the most recent registry_size subjects
+    resumed = LLMExtractor(ScriptedChat(fake), registry_size=2, registry_path=str(store.registry_path))
+    assert resumed.registry.subjects("eng", "group:eng") == ["topic m2", "topic m3"]
+
+
+def test_batch_cache_extracts_an_identical_session_once(tmp_path):
+    calls = []
+
+    def fake(system, user):
+        calls.append(user)
+        ids = [line.split(">")[0][1:] for line in user.split("TARGET messages:\n")[1].splitlines()]
+        return json.dumps([{"msg": ids[0], "holder": "speaker:user", "subject": "home", "attribute": "location",
+                            "value": "Pune", "modality": "state"}])
+
+    texts = ["I moved to Pune last month for work.", "That sounds exciting, how is the weather there?"]
+    store = ExtractionStore(tmp_path / "lme.jsonl")
+    ex = LLMExtractor(ScriptedChat(fake), cache=store)
+    a = ex.extract(_session("q1", "s7", texts), on_batch=store.append)
+    b = ex.extract(_session("q2", "s7", texts), on_batch=store.append)  # same session in another question
+    c = ex.extract(_session("q3", "s9", texts[:1] + ["Pune is lovely."]))  # different content: a miss
+    assert len(calls) == 2 and ex.batches == 3 and ex.cache_hits == 1 and ex.hit_rate() == pytest.approx(1 / 3)
+    assert [r.msg_id for r in b] == ["q2:s7#0"] and b[0].value == a[0].value and b[0].speaker == "user"
+    assert c[0].msg_id == "q3:s9#0"
+    again = LLMExtractor(ScriptedChat(fake), cache=ExtractionStore(tmp_path / "lme.jsonl"))
+    again.extract(_session("q4", "s7", texts))
+    assert again.calls == 0  # the cache is on disk: a resumed run hits it too
+    other_model = LLMExtractor(ScriptedChat(fake, name="other"), cache=ExtractionStore(tmp_path / "lme.jsonl"))
+    other_model.extract(_session("q5", "s7", texts))
+    assert other_model.calls == 1  # the model is part of the key

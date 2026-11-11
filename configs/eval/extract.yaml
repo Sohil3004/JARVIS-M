@@ -1,0 +1,9 @@
+# Extracted records against hand-labelled slots (docs/LABELING.md, "Labelling slots"):
+#   jarvis-eval extract-eval configs/eval/extract.yaml
+#   jarvis-eval extract-eval configs/eval/extract.yaml --set extractor.type=cached --set extractor.path=data/extract/locomo/qwen3_4b.jsonl
+# Datasets with no labelled conversation are listed with empty scores.
+extractor: {type: heuristic}
+labels: [data/labels/slots]
+datasets:
+  - {label: LoCoMo, domain: personal, name: locomo}
+  - {label: LongMemEval-S test (stratified 20%), domain: assistant, name: longmemeval, variant: s_cleaned, split: test}

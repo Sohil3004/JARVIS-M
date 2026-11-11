@@ -5,5 +5,6 @@ extractor:
   type: llm
   batch: 8          # target messages per call
   context: 6        # preceding messages shown for coreference
-  prefilter: heuristic
+  prefilter: light   # skip only messages with < 3 content words and no digit or entity (heuristic: ablation)
+  registry_size: 40  # recent subjects per (channel, holder) shown in the prompt
   chat: {type: hf, model: Qwen/Qwen3-4B-Instruct-2507, load_in_4bit: true}

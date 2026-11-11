@@ -1,6 +1,7 @@
 # Generalisation work: change log
 
-Task: `docs/prompts/generalise_v1.md`. Phases A–C are done; D–F are not started.
+Task: `docs/prompts/generalise_v1.md` (phases A–C) and its addendum
+`docs/prompts/generalise_v1_DF.md` (phases D–F).
 All numbers on this page are CPU numbers (hashing embedder, heuristic extractor). They
 are for before/after comparison only, not for the paper.
 
@@ -275,3 +276,126 @@ with enforcement and above 0 in measure-only mode (asserted in the tests).
   level requires rebuilding the memory.
 * There is no enterprise benchmark yet (StateBench enterprise domain is phase E), so there
   is no `leak_rate` number on real-sized data.
+
+## Phase D: extractor generality, access mode and group chats
+
+### What changed
+
+* **Access mode** (`access.mode: off | auto | on`, addendum D1). `auto` is the new default:
+  every memory builds an access controller, and enforcement is in force as soon as any
+  access-control metadata exists (a principal or channel directory, a policy channel
+  default or text marker, or one message with a non-public label); with none it is a no-op.
+  `on` raises `AccessConfigError` at the first question if there is no metadata. `off`
+  builds nothing (`access: off`). The old `mode: prod|debug` (the final check) is now
+  `final_check`; `mode: prod|debug` is still read as `final_check`. The environment
+  variable is now `JARVIS_ACCESS_CHECK`. Enforcement is never switched off by participant
+  count.
+* **One group-chat constant**, `types.GROUP_MIN_PARTICIPANTS = 3`, used by the default
+  audience, the holder rule and the fixed scorer's own-state bonus.
+* **Default audience** (D2). `retrieve(..., channel=...)`: with no explicit audience, an
+  answer in a group chat (3 or more members, counting the asker) or an open channel is for
+  everyone in it (the meet); in a DM, or with no channel, for the asker. Members come from
+  the directory, or for an unlisted channel from who wrote there. The runner and
+  `build_examples` pass `question.meta["channel"]`.
+* **Holder rule** (D2). First-person-singular work state (owner, status, deadline,
+  decision) is group-held only in group chats and speaker-held in DMs. The heuristic marks
+  such records `meta.group_in_group_chat`; the graph decides from the channel's directory
+  size or its distinct non-assistant speakers that readers of the record's class can see,
+  counted over all ingested messages (a new speaker triggers a replay, so ingest order does
+  not matter). `my / mine` and personal statements are always the speaker's.
+* **Personal statements** (D5). New modality `state` (stateful) and the attribute set
+  `decision, deadline, owner, status, plan, requirement, preference, location,
+  relationship, possession, role, schedule, info`. The heuristic recognises cheap
+  first-person patterns ("I moved to Pune", "i'm vegetarian now", "we got a puppy", "my
+  sister", "I work at", "I have an appointment") and gives them a canonical subject
+  (`home`, `diet`, the object noun). `FEATURE_NAMES` gained `mod_state` (checkpoints are
+  rejected again).
+* **Lowercase-robust entities** (D5): head nouns of `my / our <noun phrase>` ("my new
+  laptop" → `laptop`). `my` phrases also count as topic phrases.
+* **LLM extractor** (D1–D4): domain-neutral prompt (`PROMPT_VERSION = "2"`) with holder
+  guidance by chat type, the new attribute set, `state`, and an optional `sensitivity`
+  suggestion (raise-only, used by access control). Each call says whether the chat is a
+  group chat or one-to-one. Batches are per (channel, session), so context never crosses a
+  session.
+* **Slot registry** (D2): the last 40 subjects per (channel, holder) are listed in the
+  prompt; saved as `<cache>.registry.json` next to the extraction cache.
+* **Prefilter** (D3): `prefilter: none | light | heuristic`, default `light` (skip only
+  messages with fewer than 3 content words and no digit or entity).
+* **Batch cache** (D4): key = SHA-1 of (PROMPT_VERSION, model, context and target texts with
+  speaker and channel), stored in the extraction JSONL. `jarvis-eval extract` prints the
+  batch-cache hit rate.
+* **`jarvis-eval extract-eval`** (D6) against `data/labels/slots/*.jsonl`: record recall,
+  holder / attribute / modality accuracy, subject purity and completeness, spurious rate.
+  Label guide in `docs/LABELING.md`; config `configs/eval/extract.yaml`.
+
+### LongMemEval-S session repetition (measured before the cache)
+
+Over the 500 questions there are 23,867 haystack session occurrences, 19,195 distinct
+session ids and 18,464 distinct session contents (role + text of every turn). No session id
+has two different contents. So 22.6% of session occurrences (22.5% of turns: 246,750
+occurrences, 191,332 distinct) repeat an earlier one and are batch-cache hits when batches
+are per session. 3.8% of distinct ids are byte-identical copies under another id, which
+only the content key catches.
+
+### Tests added
+
+`tests/test_access_modes.py` (13): `auto` gives the same rankings and contexts as `off` on
+a StateBench sample and a LoCoMo sample (hypergraph, BM25, hybrid); `auto` with only a
+message label still keeps a #leadership message out of an intern's DM; `on` without
+metadata raises; default audience in a group chat, a DM, an open channel, an unlisted
+channel, and an explicit override; compartment property tests over random principals and
+audiences, checked against compartments computed from the raw labels without
+`can_read`. `tests/test_graph_generalise.py`: hand-off in a 4-person channel, the same
+messages in a DM, a late third participant (in time and in ingest order), directory size,
+personal statements in a group chat. `tests/test_extract.py` (5): prompt content and chat
+type line, holder / attribute / sensitivity parsing, light prefilter, slot registry in the
+prompt and after a resume, batch cache across identical sessions, on disk, and per model.
+`tests/test_supersession_lodo.py`: `extract-eval`.
+
+### Decisions
+
+* **Name clash.** The addendum's `access.mode` takes the key the final check used, so the
+  final check is now `final_check` (and `JARVIS_ACCESS_CHECK`).
+* **Default policy in `auto`.** With no `access:` setting the built-in policy has no channel
+  defaults and no markers, so only message metadata and a dataset's directory turn
+  enforcement on. Pass `configs/access/default.yaml` to get its markers and channel defaults.
+* **An empty channel directory restricts nothing.** `unlisted_channels: closed` applies only
+  when the directory lists at least one channel; otherwise `auto` triggered by a label alone
+  would make every channel unreadable.
+* **A question with no channel** is answered for the asker alone (like a DM).
+* **Group-chat size** counts distinct non-assistant speakers (or directory members) and
+  includes the asker for the audience rule. LongMemEval (user + assistant) and LoCoMo (two
+  people) are DMs; StateBench and GroupMemBench channels are group chats.
+* **The graph, not the extractor, decides group vs DM** for heuristic records, because only
+  the graph sees the whole channel in a viewer-safe way. The LLM extractor is told the chat
+  type in the prompt and its holder is used as given.
+* **`state` modality.** Without it a personal fact ("I live in Pune") is `info`, which never
+  enters a version chain.
+* **NP heads only after `my / our`.** Heads after `the` were tried: on StateBench they
+  lowered supersession precision (test 0.869 → 0.843) and fixed-scorer MRR (0.787 → 0.784)
+  by linking unrelated statements on generic nouns.
+* **The registry is not in the cache key**, as the spec says. A hit can carry subjects
+  chosen under another registry state; they are still that model's subjects for that text.
+* **Batching per (channel, session)** instead of per channel, so identical sessions give
+  identical batches and context does not cross a session boundary.
+
+### Measurements (CPU, hashing embedder, heuristic extractor)
+
+| Set | fixed MRR before (phase C) | after | seeds |
+| --- | --- | --- | --- |
+| StateBench dev | 0.821 | 0.820 | 0.751 (same) |
+| StateBench test | 0.787 | 0.787 | 0.752 (same) |
+| LoCoMo | 0.275 | 0.273 | 0.287 (same) |
+| LongMemEval-S test | 0.536 | 0.561 | 0.588 (same) |
+
+Supersession on StateBench is unchanged (dev P 0.965 / R 0.269, test P 0.869 / R 0.073):
+StateBench has no personal statements and all its channels are group chats.
+
+### Known limitations
+
+* No hand-labelled slots exist yet, so `extract-eval` has no number on real data.
+* The heuristic's personal patterns are English, first-person and shallow ("I started
+  eating fish again" is missed).
+* The default audience for an unlisted channel counts every speaker who wrote there,
+  including in messages the asker cannot read (only the count and ids of speakers, never
+  text).

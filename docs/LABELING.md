@@ -101,3 +101,43 @@ Convert the export to the native format first (`{"name", "conversations": [{"id"
 stable message ids such as `<chat>-<line number>`. Use the file's `name` as `dataset` in
 the labels. Keep both the chat file and the label file out of git if the chat is private:
 add them to `.gitignore` or store them outside the repository and pass `--labels <path>`.
+
+# Labelling slots (extraction evaluation)
+
+`jarvis-eval extract-eval` checks extracted records field by field against hand-labelled
+records in `data/labels/slots/*.jsonl`. One JSON object per line, one line per fact:
+
+```json
+{"dataset": "locomo", "conversation_id": "conv-26", "msg_id": "D3:4", "holder": "speaker:Caroline", "subject": "home", "attribute": "location", "modality": "state", "value": "Boston"}
+{"dataset": "locomo", "conversation_id": "conv-26", "msg_id": "D3:5", "no_record": true}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `dataset`, `conversation_id`, `msg_id` | As for supersession labels above. |
+| `holder` | `speaker:<name>`, `group:<channel>` or `person:<name>`. |
+| `subject` | Your own short name for the slot. Use the **same string** for every message about the same thing in one conversation and holder; the exact wording does not matter, only which messages share it. |
+| `attribute` | One of `decision, deadline, owner, status, plan, requirement, preference, location, relationship, possession, role, schedule, info`. |
+| `modality` | One of `decision, commitment, done, blocker, negated, state, proposal, question, info`. |
+| `value` | The value stated, a few words. Used only to pick the best of several records on one message. |
+| `no_record` | `true` marks a message that should give no stateful record (chit-chat, a question, a pure reaction). Then leave the other fields out. |
+
+Rules:
+
+1. **Holders follow the chat type.** In a group chat (3 or more participants) task
+   ownership, status, deadlines and decisions belong to the group even in the first person
+   ("I'll take load testing" → `group:<channel>`). In a one-to-one chat, and for personal
+   statements anywhere ("my visa got approved", "I moved to Pune"), they belong to the
+   speaker.
+2. **Personal facts are `state`.** Where someone lives, what they like, own or do for a
+   living. "I'm not vegetarian any more" is a new `state` value, not `negated`.
+3. **Label every message you look at.** Give a message either its records or
+   `no_record`, so spurious records can be counted. Skip a message only if you cannot decide.
+4. About 100 messages per dataset is enough to see field accuracies to ±10 points: one
+   LoCoMo conversation, ten LongMemEval-S `knowledge-update` haystacks (their evidence
+   sessions), and one WhatsApp chat.
+
+What `extract-eval` reports: record recall, holder / attribute / modality accuracy over
+matched records, subject purity (a predicted subject never mixes two of your subjects) and
+subject completeness (each of your subjects gets one predicted subject, which is what lets
+version chains link on the exact key), and the spurious rate on `no_record` messages.

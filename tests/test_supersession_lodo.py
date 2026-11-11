@@ -121,3 +121,35 @@ def test_make_lodo(tmp_path):
     train.write_text(yaml.safe_dump({"memory": MEM, "train_data": [{"name": "jarvis", "path": "a.json", "domain": "team"}]}))
     with pytest.raises(ValueError, match="two domains"):
         main(["make-lodo", str(train), "--out", str(out)])
+
+
+def test_extract_eval_fields_purity_and_spurious(tmp_path, write_json):
+    from jarvis_m.eval.extract_eval import extract_eval, to_markdown
+
+    conv = {"id": "c1", "messages": [
+        {"id": "m0", "speaker": "Ana", "text": "I moved to Pune last month.", "channel": "dm", "timestamp": 1.0},
+        {"id": "m1", "speaker": "Ben", "text": "lol nice", "channel": "dm", "timestamp": 2.0},
+        {"id": "m2", "speaker": "Ana", "text": "Actually I relocated to Mumbai in May.", "channel": "dm", "timestamp": 3.0},
+        {"id": "m3", "speaker": "Ana", "text": "I'll take the visa paperwork.", "channel": "dm", "timestamp": 4.0},
+        {"id": "m4", "speaker": "Ben", "text": "how was the trip?", "channel": "dm", "timestamp": 5.0}]}
+    p = write_json("p.json", {"name": "pers", "conversations": [conv], "questions": []})
+    gold = [{"dataset": "pers", "conversation_id": "c1", "msg_id": "m0", "holder": "speaker:Ana", "subject": "home",
+             "attribute": "location", "modality": "state", "value": "Pune"},
+            {"dataset": "pers", "conversation_id": "c1", "msg_id": "m2", "holder": "speaker:Ana", "subject": "home",
+             "attribute": "location", "modality": "state", "value": "Mumbai"},
+            {"dataset": "pers", "conversation_id": "c1", "msg_id": "m3", "holder": "speaker:Ana",
+             "subject": "visa paperwork", "attribute": "owner", "modality": "commitment", "value": "Ana"},
+            {"dataset": "pers", "conversation_id": "c1", "msg_id": "m1", "no_record": True},
+            {"dataset": "pers", "conversation_id": "c1", "msg_id": "m4", "no_record": True},
+            {"dataset": "other", "conversation_id": "c1", "msg_id": "zz", "no_record": True}]
+    lab = write_json("labels/pers.jsonl", gold, lines=True)
+    res = extract_eval({"datasets": [{"name": "jarvis", "path": str(p), "domain": "personal"}]}, [str(lab)],
+                       progress=False)
+    (d,) = res["datasets"]
+    assert d["gold_records"] == 3 and d["record_recall"] == 1.0 and d["unknown_message_ids"] == 0
+    assert d["holder_accuracy"] == 1.0  # a DM: "I'll take ..." stays with the speaker
+    assert d["attribute_accuracy"] == 1.0 and d["subject_completeness"] == 1.0 and d["spurious_rate"] == 0.0
+    assert "subject purity" in to_markdown(res)
+    with pytest.raises(ValueError, match="missing"):
+        bad = write_json("bad.jsonl", [{"dataset": "x", "conversation_id": "c", "msg_id": "m"}], lines=True)
+        extract_eval({"datasets": []}, [str(bad)], progress=False)

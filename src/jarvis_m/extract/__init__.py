@@ -15,21 +15,41 @@ from typing import Any, Dict, List, Optional, Sequence, Set
 
 from ..types import Message
 from .heuristic import HeuristicExtractor, entities
-from .llm_extractor import LLMExtractor, parse_records
+from .llm_extractor import PROMPT_VERSION, LLMExtractor, parse_records
 from .records import MODALITIES, STATEFUL, StateRecord
 
 
 class ExtractionStore:
-    """Append-only JSONL: one line per processed message ``{"msg": id, "records": [...]}``."""
+    """Append-only JSONL: one line per processed message ``{"msg": id, "records": [...]}``,
+    plus one line per LLM batch ``{"batch": key, "records": [...]}`` (the batch cache: records
+    carry the target's index ``i`` instead of a message id). The LLM extractor's slot
+    registry is kept next to it (``<name>.registry.json``)."""
 
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
         self.records: Dict[str, List[StateRecord]] = {}
+        self.batches: Dict[str, List[Dict[str, Any]]] = {}
         if self.path.exists():
             for line in self.path.read_text(encoding="utf-8").splitlines():
                 if line.strip():
                     d = json.loads(line)
-                    self.records[d["msg"]] = [StateRecord.from_json(r) for r in d["records"]]
+                    if "batch" in d:
+                        self.batches[d["batch"]] = d["records"]
+                    else:
+                        self.records[d["msg"]] = [StateRecord.from_json(r) for r in d["records"]]
+
+    @property
+    def registry_path(self) -> Path:
+        return self.path.with_suffix(".registry.json")
+
+    def get_batch(self, key: str) -> Optional[List[Dict[str, Any]]]:
+        return self.batches.get(key)
+
+    def put_batch(self, key: str, records: List[Dict[str, Any]]) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.batches[key] = records
+        with self.path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"batch": key, "records": records}) + "\n")
 
     def done(self) -> Set[str]:
         return set(self.records)
@@ -103,5 +123,5 @@ def build_extractor(cfg: Optional[Dict[str, Any]]):
 
 __all__ = [
     "MODALITIES", "STATEFUL", "StateRecord", "HeuristicExtractor", "LLMExtractor", "CachedExtractor",
-    "NullExtractor", "ExtractionStore", "build_extractor", "entities", "parse_records",
+    "NullExtractor", "ExtractionStore", "build_extractor", "entities", "parse_records", "PROMPT_VERSION",
 ]

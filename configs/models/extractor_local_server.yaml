@@ -4,5 +4,6 @@ extractor:
   type: llm
   batch: 8
   context: 6
-  prefilter: heuristic
+  prefilter: light   # skip only messages with < 3 content words and no digit or entity (heuristic: ablation)
+  registry_size: 40  # recent subjects per (channel, holder) shown in the prompt
   chat: {type: openai, model: CHANGE_ME, base_url: "http://localhost:11434/v1", api_key_env: ""}

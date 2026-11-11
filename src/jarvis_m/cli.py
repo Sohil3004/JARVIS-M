@@ -9,6 +9,7 @@
     jarvis-eval train-hgnn configs/train/hgnn_statebench_lme.yaml
     jarvis-eval rank-eval configs/eval/rank_real.yaml [--arm hgnn_v2=models/hgnn/hgnn_v2_s{0,1,2}.pt] [--k 5 10]
     jarvis-eval supersession-eval configs/eval/supersession.yaml [--labels data/labels/supersession]
+    jarvis-eval extract-eval configs/eval/extract.yaml [--labels data/labels/slots]
     jarvis-eval make-lodo configs/train/<train>.yaml --out configs/train/lodo/ [--eval-config configs/eval/<rank>.yaml]
     jarvis-eval data info configs/exp/gmb_baselines.yaml
 """
@@ -91,6 +92,13 @@ def main(argv=None) -> int:
     se.add_argument("--out", default=None, help="markdown path (default results/supersession/<config>.md)")
     se.add_argument("--set", dest="overrides", action="append", default=[], metavar="KEY=VALUE")
 
+    ee = sub.add_parser("extract-eval", help="per-field accuracy of extracted records vs hand-labelled slots")
+    ee.add_argument("config", help="yaml with `extractor:` and `datasets:`; optional `labels:` (files or directories)")
+    ee.add_argument("--labels", action="append", default=None, metavar="PATH",
+                    help="label file or directory of *.jsonl (default data/labels/slots)")
+    ee.add_argument("--out", default=None, help="markdown path (default results/extract/<config>.md)")
+    ee.add_argument("--set", dest="overrides", action="append", default=[], metavar="KEY=VALUE")
+
     ml = sub.add_parser("make-lodo", help="write leave-one-domain-out train + rank-eval configs")
     ml.add_argument("config", help="train config whose datasets carry `domain:`")
     ml.add_argument("--out", required=True, help="directory for the generated configs")
@@ -155,6 +163,16 @@ def main(argv=None) -> int:
         print(f"[supersession-eval] wrote {out} and {out.with_suffix('.json')}")
         return 0
 
+    if a.cmd == "extract-eval":
+        from .config import apply_overrides, load_config
+        from .eval.extract_eval import extract_eval, to_markdown, write_report
+
+        res = extract_eval(apply_overrides(load_config(a.config), a.overrides), a.labels)
+        out = write_report(res, a.out or Path("results/extract") / f"{Path(a.config).stem}.md")
+        print(to_markdown(res))
+        print(f"[extract-eval] wrote {out} and {out.with_suffix('.json')}")
+        return 0
+
     if a.cmd == "make-lodo":
         from .eval.lodo import make_lodo
 
@@ -214,7 +232,11 @@ def _extract(a) -> int:
     out = Path(a.out or Path("data/extract") / ds.name / f"{name}.jsonl")
     store = ExtractionStore(out)
     done = store.done()
-    extractor = build_extractor(ecfg["extractor"])
+    xcfg = dict(ecfg["extractor"])
+    if xcfg.get("type") == "llm":  # batch cache + slot registry persisted with the extraction cache
+        xcfg.setdefault("cache", store)
+        xcfg.setdefault("registry_path", str(store.registry_path))
+    extractor = build_extractor(xcfg)
     total = sum(len(c.messages) for c in ds.conversations.values())
     print(f"[extract] {ds.name}: {total} messages, {len(done)} already in {out}")
     t0, n_done = time.perf_counter(), [0]
@@ -236,6 +258,10 @@ def _extract(a) -> int:
         else:
             recs = extractor.extract(todo)
             on_batch(recs, [m.id for m in todo])
+    if hasattr(extractor, "hit_rate"):
+        print(f"[extract] {extractor.batches} batches, {extractor.cache_hits} from the batch cache "
+              f"(hit rate {extractor.hit_rate():.1%}), {extractor.calls} LLM calls; "
+              f"{len(done)} messages were already in the cache")
     print(f"[extract] done -> {out}  (use memory.extractor: {{type: cached, path: {out.as_posix()}}})")
     return 0
 
