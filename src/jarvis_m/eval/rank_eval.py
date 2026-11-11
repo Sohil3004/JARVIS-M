@@ -12,7 +12,10 @@ over seeds.
 
 Reports, per dataset, per domain and as the macro-average over domains: R@k, MRR,
 nDCG@10, all@k and the stale-rank rate (questions where a stale evidence message
-outranks the best gold message). A significance table compares every arm with the
+outranks the best gold message). For datasets with access-control metadata (and a memory
+with ``access:`` set) it also reports ``leak_rate``: questions whose top-k ranking holds a
+message the question's effective principal may not read. With enforcement on this is 0 by
+construction; ``access.enforce: false`` measures what an unprotected system would leak. A significance table compares every arm with the
 reference arm (conversation-cluster paired bootstrap over seeds x conversations,
 Holm-corrected). Per-question scores go to ``<out>.questions.json``.
 
@@ -88,9 +91,12 @@ def parse_arms(specs: Sequence[str]) -> Dict[str, List[str]]:
 
 # ------------------------------------------------------------------ metrics
 def question_metrics(scores: np.ndarray, labels: np.ndarray, ks: Sequence[int],
-                     stale: Optional[np.ndarray] = None) -> Dict[str, Optional[float]]:
+                     stale: Optional[np.ndarray] = None,
+                     unreadable: Optional[np.ndarray] = None) -> Dict[str, Optional[float]]:
     """Ranking metrics for one question. ``stale_rank`` is 1 when a stale evidence node is
-    ranked above the best gold node, 0 when not, None when the question has no stale evidence."""
+    ranked above the best gold node, 0 when not, None when the question has no stale evidence.
+    ``leak`` is 1 when the top max(k) holds a node its principal may not read (None without
+    access-control metadata)."""
     order = np.argsort(-np.asarray(scores, dtype=np.float64), kind="stable")
     rel = labels[order]
     n_gold = float(labels.sum())
@@ -110,6 +116,7 @@ def question_metrics(scores: np.ndarray, labels: np.ndarray, ks: Sequence[int],
     else:
         s_hits = np.nonzero(stale[order])[0]
         out["stale_rank"] = float(len(s_hits) > 0 and (first is None or int(s_hits[0]) < first))
+    out["leak"] = None if unreadable is None else float(unreadable[order][: max(ks)].sum() > 0)
     return out
 
 
@@ -126,6 +133,8 @@ def aggregate(rows_by_seed: Sequence[Sequence[Dict[str, Any]]], metric_names: Se
         out[name] = _mean(per_seed)
     mrrs = [m for m in (_mean([r["MRR"] for r in rows]) for rows in rows_by_seed) if m is not None]
     out["MRR_seed_std"] = float(np.std(mrrs)) if len(mrrs) > 1 else 0.0
+    if "leak" in out:
+        out["leak_rate"] = out.pop("leak")
     cats: Dict[str, List[List[float]]] = defaultdict(lambda: [[] for _ in rows_by_seed])
     for s, rows in enumerate(rows_by_seed):
         for r in rows:
@@ -136,12 +145,13 @@ def aggregate(rows_by_seed: Sequence[Sequence[Dict[str, Any]]], metric_names: Se
 
 def score_examples(examples: Sequence[Example], score_fn: Scorer, ks: Sequence[int]) -> Dict[str, Any]:
     """Aggregate metrics of one scorer (kept for callers that need a single table row)."""
-    rows = [{"category": e.category, **question_metrics(score_fn(e), e.labels, ks, e.stale)} for e in examples]
+    rows = [{"category": e.category, **question_metrics(score_fn(e), e.labels, ks, e.stale, e.unreadable)}
+            for e in examples]
     return aggregate([rows], _metric_names(ks))
 
 
 def _metric_names(ks: Sequence[int]) -> List[str]:
-    return [*[f"R@{k}" for k in ks], "MRR", f"nDCG@{NDCG_K}", *[f"all@{k}" for k in ks], "stale_rank"]
+    return [*[f"R@{k}" for k in ks], "MRR", f"nDCG@{NDCG_K}", *[f"all@{k}" for k in ks], "stale_rank", "leak"]
 
 
 def _checkpoint_scorer(path: str, device: str = "cpu") -> Scorer:
@@ -210,7 +220,7 @@ def rank_eval(cfg: Dict[str, Any], checkpoints: Sequence[str] = (), ks: Optional
             for s, fn in enumerate(fns):
                 qrows = [{"qid": e.qid, "conversation_id": e.conversation_id, "dataset": label, "domain": e.domain,
                           "category": e.category, "arm": arm, "seed": s,
-                          **question_metrics(fn(e), e.labels, ks, e.stale)} for e in ex]
+                          **question_metrics(fn(e), e.labels, ks, e.stale, e.unreadable)} for e in ex]
                 rows[arm][s] += qrows
                 per_seed.append(qrows)
             res[arm] = aggregate(per_seed, names)
@@ -224,8 +234,9 @@ def rank_eval(cfg: Dict[str, Any], checkpoints: Sequence[str] = (), ks: Optional
     out["domains"] = {
         dom: {arm: aggregate([[r for r in seed if r["domain"] == dom] for seed in per], names)
               for arm, per in rows.items()} for dom in domains}
+    agg_names = ["leak_rate" if m == "leak" else m for m in names]
     out["macro"] = {arm: {"n_domains": len(domains),
-                          **{m: _mean([out["domains"][d][arm][m] for d in domains]) for m in names}}
+                          **{m: _mean([out["domains"][d][arm][m] for d in domains]) for m in agg_names}}
                     for arm in rows}
     out["significance"] = _significance(rows, reference, domains, boot)
     out["per_question"] = [r for per in rows.values() for seed in per for r in seed]
@@ -288,8 +299,10 @@ def to_markdown(res: Dict[str, Any]) -> str:
                   f"candidate recall: {st['candidate_recall']:.3f} | "
                   f"mean superseded fraction: {st.get('superseded_fraction', 0.0):.4f} | "
                   f"chains / 100 msgs: {st.get('chains_per_100_messages', 0.0):.2f}", ""]
-        head = ["Scorer", "n", *[f"R@{k}" for k in ks], "MRR", nd, "stale-rank", *cats]
+        acl = any(r.get("leak_rate") is not None for r in d["scorers"].values())
+        head = ["Scorer", "n", *[f"R@{k}" for k in ks], "MRR", nd, "stale-rank", *(["leak_rate"] if acl else []), *cats]
         body = [[name, str(r["n"]), *[_f(r[f"R@{k}"]) for k in ks], _f(r["MRR"]), _f(r[nd]), _f(r["stale_rank"]),
+                 *([_f(r.get("leak_rate"))] if acl else []),
                  *[_f(r["per_category_mrr"].get(c)) for c in cats]] for name, r in d["scorers"].items()]
         lines += _table(head, body)
     doms = list(res.get("domains", {}))

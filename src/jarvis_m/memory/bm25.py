@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections import Counter, defaultdict
-from typing import Dict, List, Sequence
+from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 
@@ -30,18 +30,32 @@ class BM25Index:
                 self.df[t] += 1
                 self.postings[t].append(idx)
 
-    def scores(self, query_tokens: Sequence[str]) -> np.ndarray:
-        n = len(self.doc_len)
-        out = np.zeros(n, dtype=np.float64)
-        if n == 0:
+    def scores(self, query_tokens: Sequence[str], mask: Optional[np.ndarray] = None) -> np.ndarray:
+        """BM25 score per document. With ``mask``, the collection statistics (document
+        count, document frequency, average length) are computed over the masked documents
+        only, and only those are scored: the result is what an index holding just the
+        masked documents would return."""
+        total = len(self.doc_len)
+        out = np.zeros(total, dtype=np.float64)
+        if total == 0:
             return out
-        avgdl = (sum(self.doc_len) / n) or 1.0
-        for t in set(query_tokens):
-            df = self.df.get(t, 0)
+        if mask is None:
+            n, length = total, sum(self.doc_len)
+        else:
+            idx = np.nonzero(mask)[0]
+            n, length = len(idx), sum(self.doc_len[i] for i in idx)
+            if n == 0:
+                return out
+        avgdl = (length / n) or 1.0
+        for t in dict.fromkeys(query_tokens):
+            posting = self.postings.get(t, ())
+            if mask is not None:
+                posting = [i for i in posting if mask[i]]
+            df = len(posting)
             if not df:
                 continue
             idf = math.log(1 + (n - df + 0.5) / (df + 0.5))
-            for i in self.postings[t]:
+            for i in posting:
                 f = self.doc_tf[i][t]
                 denom = f + self.k1 * (1 - self.b + self.b * self.doc_len[i] / avgdl)
                 out[i] += idf * f * (self.k1 + 1) / denom

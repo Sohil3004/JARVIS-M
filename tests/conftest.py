@@ -1,17 +1,28 @@
 import json
+import os
 from pathlib import Path
 
 import pytest
 
-from jarvis_m.data.loaders import load_jarvis
+# the final access check raises instead of filtering + logging (docs/ACCESS_CONTROL.md)
+os.environ.setdefault("JARVIS_ACCESS_MODE", "debug")
+
+from jarvis_m.data.loaders import load_jarvis  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 TOY = ROOT / "tests" / "fixtures" / "toy_team.json"
+TOY_ENTERPRISE = ROOT / "tests" / "fixtures" / "toy_enterprise.json"
+ACCESS = str(ROOT / "configs" / "access" / "default.yaml")
 
 
 @pytest.fixture(scope="session")
 def toy():
     return load_jarvis(str(TOY))
+
+
+@pytest.fixture(scope="session")
+def toy_enterprise():
+    return load_jarvis(str(TOY_ENTERPRISE))
 
 
 @pytest.fixture

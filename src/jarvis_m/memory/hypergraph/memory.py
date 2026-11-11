@@ -1,5 +1,10 @@
 """HypergraphMemory: hybrid seeds -> hyperedge expansion -> fixed or learned
-propagation -> version-aware ranking -> packed context (+ optional state header)."""
+propagation -> version-aware ranking -> packed context (+ optional state header).
+
+With ``access:`` set, every step works on the effective principal's view of the graph:
+seeds, expansion, features, slot state, the state header and packing only ever touch
+messages that principal may read, and a final check re-tests everything that is returned.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +12,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
 
+from ...access import HIDDEN_UPDATE_NOTE, Label, Principal
 from ...extract import build_extractor
 from ...interfaces import Retrieval, RetrievedItem
 from ...types import Message
@@ -53,6 +59,10 @@ class HypergraphMemory(HybridMemory):
                              max_link_df=max_link_df, link_df_window=link_df_window,
                              assistant_confirmation=assistant_confirmation,
                              state_roles=None if state_roles is None else tuple(state_roles))
+        if self.access is not None:
+            # labels come from the policy; a channel with no membership list is readable by
+            # everyone cleared for the label, so other channels may read its slot state
+            self.graph_kw.update(labeler=self.access.policy.base_label, open_channel=self.access.directory.is_open)
         self.edge_types = tuple(edge_types)
         self.graph = Hypergraph(**self.graph_kw)
         self.n_seeds, self.max_candidates, self.max_edge_size = n_seeds, max_candidates, max_edge_size
@@ -70,12 +80,30 @@ class HypergraphMemory(HybridMemory):
         super().reset()
         self.graph = Hypergraph(**self.graph_kw)
 
+    def _label(self, messages: Sequence[Message]) -> None:
+        return None  # the graph labels messages (it also needs the thread structure)
+
+    def message_labels(self) -> Sequence[Label]:
+        return self.graph.labels
+
     def _on_ingest(self, messages: Sequence[Message]) -> None:
         super()._on_ingest(messages)
         by: Dict[str, list] = {}
+        suggested: Dict[str, Label] = {}
+        policy = self.access.policy if self.access is not None else None
         for r in self.extractor.extract(messages):
             by.setdefault(r.msg_id, []).append(r)
-        self.graph.add(messages, by)
+            hint = (r.meta or {}).get("sensitivity")
+            if policy is not None and policy.use_extractor_suggestions and hint:
+                # an extractor may suggest a label; it can only raise the message's label
+                hint = hint if isinstance(hint, dict) else {"level": hint}
+                try:
+                    label = Label(policy.level(hint.get("level") or 0), frozenset(hint.get("compartments") or ()))
+                except ValueError:
+                    continue  # not a level this policy knows: ignore the suggestion
+                prev = suggested.get(r.msg_id, Label())
+                suggested[r.msg_id] = Label(max(prev.level, label.level), prev.compartments | label.compartments)
+        self.graph.add(messages, by, suggested)
 
     # ---------------------------------------------------------------- scoring
     @property
@@ -96,14 +124,15 @@ class HypergraphMemory(HybridMemory):
                 raise ValueError(f"unknown scorer {kind!r}")
         return self._scorer
 
-    def view(self, asker: Optional[str] = None) -> GraphView:
-        """What this query may see. The speaker-scope ablation (``scope: asker|others``) is
-        a filter on the view, so slot state is recomputed over the messages in scope."""
-        return self.graph.view(self._candidates(asker))
+    def view(self, asker: Optional[str] = None, principal: Optional[Principal] = None) -> GraphView:
+        """What this query may see: the messages ``principal`` may read (access control),
+        narrowed by the speaker-scope ablation (``scope: asker|others``). Slot state is
+        recomputed over exactly those messages."""
+        return self.graph.view(self._candidates(asker, principal))
 
     def subgraph(self, query: str, asker: Optional[str] = None, now: Optional[float] = None,
-                 view: Optional[GraphView] = None) -> Subgraph:
-        view = view or self.view(asker)
+                 view: Optional[GraphView] = None, audience: Any = None) -> Subgraph:
+        view = view or self.view(asker, self.principal(asker, audience))
         mask, idx = view.mask, view.nodes
         base_all = np.zeros(len(self.messages), dtype=np.float64)
         if len(idx):
@@ -124,22 +153,33 @@ class HypergraphMemory(HybridMemory):
         return self.dense.matrix[nodes]
 
     # ---------------------------------------------------------------- retrieve
-    def retrieve(self, query, *, asker=None, budget_tokens=None, max_items=None, now=None) -> Retrieval:
+    def retrieve(self, query, *, asker=None, budget_tokens=None, max_items=None, now=None, audience=None) -> Retrieval:
+        principal = self.principal(asker, audience)
         if not self.messages:
-            return Retrieval([], "", 0, {})
-        view = self.view(asker)
+            return Retrieval([], "", 0, {}, self._audit(principal, asker, audience))
+        view = self.view(asker, principal)
         sg = self.subgraph(query, asker, now, view)
         self.last_subgraph = sg
         if not len(sg.nodes):
-            return Retrieval([], "", 0, {"candidates": 0, "edges": 0, "historical": sg.historical})
+            return Retrieval([], "", 0, {"candidates": 0, "edges": 0, "historical": sg.historical},
+                             self._audit(principal, asker, audience))
         scores = np.asarray(self.scorer(sg, (self, query, asker)), dtype=np.float64)
         order = np.argsort(-scores, kind="stable")
         ranked = [(int(sg.nodes[i]), float(scores[i])) for i in order if np.isfinite(scores[i])]
+        enforce = self.access is not None and self.access.policy.enforce
+        # final check, part 1: nothing unreadable is ranked (so it cannot be packed or summarised)
+        bad = set(self._final_check([v for v, _ in ranked], principal))
+        if bad and enforce:
+            ranked = [r for r in ranked if r[0] not in bad]
 
-        header = ""
+        header, header_nodes = "", []
         if self.state_header:
             cap = int(budget_tokens * self.header_share) if budget_tokens else None
-            header = self._state_header(view, [v for v, _ in ranked[: (max_items or 10)]], cap)
+            header, header_nodes = self._state_header(view, [v for v, _ in ranked[: (max_items or 10)]], cap)
+            # final check, part 2: the header only quotes messages the principal may read
+            bad_header = self._final_check(header_nodes, principal)
+            if bad_header and enforce:
+                header, bad = "", bad | set(bad_header)
         hdr_tok = self.counter.count(header) if header else 0
         msg_budget = budget_tokens - hdr_tok if budget_tokens is not None else None
         kept, used = [], 0
@@ -152,20 +192,46 @@ class HypergraphMemory(HybridMemory):
             kept.append((v, sc))
             used += c
         if self.order == "chronological":
-            kept.sort(key=lambda r: r[0])
+            kept.sort(key=lambda r: self.graph.tkey[r[0]])  # event time, also after out-of-order ingest
         items: List[RetrievedItem] = [self._item(v, sc) for v, sc in kept]
         if header:
             items.insert(0, RetrievedItem(header, 1.0, (), "state"))
+        signals = 0
+        if self.access is not None and self.access.policy.signal_hidden_updates:
+            signals = len(self._hidden_updates(view, [v for v, _ in kept]))
+            if signals and not header:
+                items.append(RetrievedItem(f"[Note: {HIDDEN_UPDATE_NOTE}]", 0.0, (), "notice"))
         ctx = "\n\n".join(it.text for it in items)
         info = {"candidates": int(len(sg.nodes)), "edges": len(sg.edges), "historical": sg.historical}
-        return Retrieval(items, ctx, self.counter.count(ctx), info)
+        audit = self._audit(principal, asker, audience, view.mask if enforce else None, len(bad),
+                            hidden_update_signals=signals)
+        return Retrieval(items, ctx, self.counter.count(ctx), info, audit)
 
-    def _state_header(self, view: GraphView, nodes: Sequence[int], cap: Optional[int]) -> str:
+    def _hidden_updates(self, view: GraphView, nodes: Sequence[int]) -> set:
+        """Viewer slots (touched by ``nodes``) that have a newer version the viewer cannot
+        see. Only used with ``signal_hidden_updates: true``: this reads hidden state on
+        purpose, to say "this may have been updated" and nothing more."""
+        g = self.graph
+        newest = {s.key: g.tkey[s.latest] for s in g.view().slots if s.latest is not None}
+        out = set()
+        for v in nodes:
+            c = int(view.chain_of[v])
+            if c < 0 or view.slots[c].latest is None:
+                continue
+            slot = view.slots[c]
+            if newest.get(slot.key, g.tkey[slot.latest]) > g.tkey[slot.latest]:
+                out.add(c)
+        return out
+
+    def _state_header(self, view: GraphView, nodes: Sequence[int], cap: Optional[int]):
         """Current value (+ earlier values) of every slot touched by ``nodes``, most
         relevant first, within ``cap`` tokens; the first slot is always kept. Slots are the
-        viewer's: the current value is the latest version the viewer can see."""
+        viewer's: the current value is the latest version the viewer can see. Returns the
+        header and the nodes it quotes."""
         g = self.graph
-        lines, seen = ["[Current state of topics in these messages]"], set()
+        lines, seen, quoted = ["[Current state of topics in these messages]"], set(), []
+        flagged = (self._hidden_updates(view, nodes)
+                   if self.access is not None and self.access.policy.signal_hidden_updates else set())
         for v in nodes:
             c = int(view.chain_of[v])
             if c < 0 or c in seen:
@@ -177,18 +243,23 @@ class HypergraphMemory(HybridMemory):
             cur_node, cur = ch.records[-1]
             m = g.messages[cur_node]
             when = m.meta.get("time_str", "")
-            old = [r.value[:50] for _, r in ch.records[:-1]][-2:]
+            earlier = ch.records[:-1][-2:]
+            old = [r.value[:50] for _, r in earlier]
             prev = f" | earlier: {' -> '.join(old)}" if old else ""
             subj = f"{cur.subject}/" if cur.subject else ""
-            lines.append(f"- {subj}{cur.attribute} [{cur.modality}, {cur.speaker}, {m.id} {when}]: {cur.value[:80]}{prev}")
+            note = f" ({HIDDEN_UPDATE_NOTE})" if c in flagged else ""
+            lines.append(f"- {subj}{cur.attribute} [{cur.modality}, {cur.speaker}, {m.id} {when}]: "
+                         f"{cur.value[:80]}{prev}{note}")
+            quoted.append([cur_node, *[v for v, _ in earlier]])
         if len(lines) == 1:
-            return ""
-        out = lines[0] + "\n" + lines[1]
-        for ln in lines[2:]:
+            return "", []
+        out, used = lines[0] + "\n" + lines[1], list(quoted[0])
+        for ln, q in zip(lines[2:], quoted[1:]):
             if cap and self.counter.count(out + "\n" + ln) > cap:
                 break
             out += "\n" + ln
-        return out
+            used += q
+        return out, used
 
     def stats(self) -> Dict[str, Any]:
         return {**super().stats(), **self.graph.stats(), "extractor": getattr(self.extractor, "name", "?")}

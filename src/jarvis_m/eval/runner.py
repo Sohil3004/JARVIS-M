@@ -64,6 +64,7 @@ def run(cfg: Dict[str, Any], arm: str = "", progress: bool = True) -> Path:
                 continue
             mem = build_memory(cfg["memory"], cfg.get("tokenizer"))
             mem.reset()
+            mem.configure_access(ds.annotations)  # channel / principal directory, if the dataset has one
             t0 = time.perf_counter()
             mem.ingest(conv.messages)
             if hasattr(mem, "prefetch_queries"):
@@ -72,7 +73,7 @@ def run(cfg: Dict[str, Any], arm: str = "", progress: bool = True) -> Path:
             for i, q in enumerate(qs):
                 t1 = time.perf_counter()
                 r = mem.retrieve(q.question, asker=q.asker, budget_tokens=budget, max_items=max_items,
-                                 now=q.question_time)
+                                 now=q.question_time, audience=q.meta.get("audience"))
                 t2 = time.perf_counter()
                 pred, raw = reader.answer(q, r.context)
                 t3 = time.perf_counter()
@@ -88,6 +89,7 @@ def run(cfg: Dict[str, Any], arm: str = "", progress: bool = True) -> Path:
                     "stale_hit": (mentions_any(pred, q.stale_answers) and not v.correct) if q.stale_answers else None,
                     "retrieve_ms": round((t2 - t1) * 1000, 2), "read_ms": round((t3 - t2) * 1000, 2),
                     "ingest_s": round(ingest_s, 3), "retrieval_info": r.info, "memory_stats": mem.stats(),
+                    "audit": r.audit,
                 }
                 f.write(json.dumps(row, default=str) + "\n")
                 f.flush()

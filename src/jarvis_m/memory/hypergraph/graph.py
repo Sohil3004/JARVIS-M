@@ -41,7 +41,7 @@ from typing import Callable, Deque, Dict, Iterable, List, Optional, Sequence, Se
 
 import numpy as np
 
-from ...access import Label, join, message_label
+from ...access import Label, ThreadLabeler, message_label
 from ...extract.heuristic import is_time_expression
 from ...extract.records import STATEFUL, StateRecord, holder_key
 from ...types import Message
@@ -152,16 +152,14 @@ class Hypergraph:
         self.id2node: Dict[str, int] = {}
         self.records: List[List[StateRecord]] = []
         self.modality: List[str] = []
-        self.labels: List[Label] = []  # effective label (own label joined with the thread parent's)
+        self.threads = ThreadLabeler(self.labeler)
+        self.labels: List[Label] = self.threads.labels  # effective: own label joined with the thread parent's
+        self.parent: List[int] = self.threads.parent  # reply parent in the same channel, or -1
         self.cls: List[int] = []  # node -> visibility class id
         self.classes: List[VisClass] = []
         self._cls_id: Dict[VisClass, int] = {}
         self._leq_cache: Dict[Tuple[int, int], bool] = {}
-        self.parent: List[int] = []  # reply parent in the same channel, or -1
-        self._children: Dict[int, List[int]] = {}
-        self._orphans: Dict[str, List[int]] = {}  # reply_to id not ingested yet -> waiting nodes
         self.tkey: List[Tuple[float, int]] = []  # (event time, ingest index): the canonical order
-        self._last_ts = 0.0
         self._max_tkey: Tuple[float, int] = (float("-inf"), -1)
         self._dirty = False
         self._views: OrderedDict[bytes, GraphView] = OrderedDict()
@@ -257,29 +255,14 @@ class Hypergraph:
             self.records.append(recs)
             self.modality.append(next((r.modality for r in recs if r.modality in STATEFUL),
                                       recs[0].modality if recs else "info"))
-            if m.timestamp is not None:
-                self._last_ts = float(m.timestamp)
-            self.tkey.append((self._last_ts, v))
-            label = self.labeler(m)
-            if suggestions and m.id in suggestions:
-                label = join(label, suggestions[m.id])
-            # threads live inside one channel: a cross-channel reply_to neither links nor inherits
-            p = self.id2node.get(m.reply_to, -1) if m.reply_to else -1
-            if m.reply_to and p == -1:
-                self._orphans.setdefault(m.reply_to, []).append(v)
-            if p != -1 and self.messages[p].channel != m.channel:
-                p = -1
-            self.parent.append(p)
-            if p != -1:
-                self._children.setdefault(p, []).append(v)
-                label = join(label, self.labels[p])  # a reply into a restricted thread inherits the restriction
-            self.labels.append(label)
-            self.cls.append(self._class_of(m.channel, label))
-            for c in self._orphans.pop(m.id, []):  # replies that arrived before their parent
-                if self.messages[c].channel == m.channel:
-                    self.parent[c] = v
-                    self._children.setdefault(v, []).append(c)
-                    self._raise(c, label)
+            # no timestamp sorts as time 0: give every message a timestamp, or none of them
+            # (then the order is the ingest order)
+            self.tkey.append((float(m.timestamp) if m.timestamp is not None else 0.0, v))
+            raised = self.threads.add(m, (suggestions or {}).get(m.id))
+            self.cls.append(self._class_of(m.channel, self.labels[v]))
+            for c in raised:  # a late thread parent raised these: they were processed under a lower label
+                self.cls[c] = self._class_of(self.messages[c].channel, self.labels[c])
+                self._dirty = True
             if self.tkey[v] < self._max_tkey:
                 self._dirty = True  # out of order: chains are rebuilt in time order on next use
             else:
@@ -287,16 +270,6 @@ class Hypergraph:
             if not self._dirty:
                 self._process(v)
         self._views.clear()
-
-    def _raise(self, v: int, label: Label) -> None:
-        new = join(self.labels[v], label)
-        if new == self.labels[v]:
-            return
-        self.labels[v] = new
-        self.cls[v] = self._class_of(self.messages[v].channel, new)
-        self._dirty = True  # v was processed under a lower label
-        for c in self._children.get(v, []):
-            self._raise(c, new)
 
     def _ensure(self) -> None:
         """Rebuild chains in time order after an out-of-order arrival or a raised label."""

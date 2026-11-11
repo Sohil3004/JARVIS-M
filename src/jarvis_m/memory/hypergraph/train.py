@@ -36,6 +36,17 @@ class Example:
     dataset: str = ""  # the config entry's label (or the dataset name)
     domain: Optional[str] = None
     stale: Optional[np.ndarray] = None  # (n,) 1 for stale evidence nodes inside the candidates
+    # (n,) 1 for candidates the question's effective principal may not read; None when the
+    # dataset has no access-control metadata
+    unreadable: Optional[np.ndarray] = None
+
+
+def has_acl_metadata(ds, conv) -> bool:
+    """A dataset has access-control metadata when it ships a channel or principal directory,
+    or any of the conversation's messages carries an ``acl_*`` field."""
+    ann = ds.annotations or {}
+    return bool(ann.get("channels") or ann.get("principals")) or any(
+        m.meta and ("acl_level" in m.meta or "acl_compartments" in m.meta) for m in conv.messages)
 
 
 def build_examples(memory_cfg: Dict[str, Any], datasets: Sequence[Dict[str, Any]], tokenizer=None,
@@ -55,23 +66,31 @@ def build_examples(memory_cfg: Dict[str, Any], datasets: Sequence[Dict[str, Any]
                 continue
             mem = build_memory(memory_cfg, tokenizer)
             mem.reset()
+            mem.configure_access(ds.annotations)
             mem.ingest(conv.messages)
             g = mem.graph
+            has_acl = mem.access is not None and has_acl_metadata(ds, conv)
             graph_stats.append(g.stats())
             if hasattr(mem, "prefetch_queries"):
                 mem.prefetch_queries([(q.question, q.asker) for q in qs])
             for q in qs:
                 stats["with_evidence"] += 1
-                sg = mem.subgraph(q.question, q.asker, q.question_time)
+                audience = q.meta.get("audience")
+                sg = mem.subgraph(q.question, q.asker, q.question_time, audience=audience)
                 gold = {g.id2node[e] for e in q.evidence_ids if e in g.id2node}
                 labels = np.array([int(v) in gold for v in sg.nodes], np.float32)
                 if labels.sum() == 0:
                     continue
                 stats["evidence_in_candidates"] += 1
                 stale = {g.id2node[e] for e in q.stale_evidence_ids if e in g.id2node}
+                unreadable = None
+                if has_acl:
+                    ok = mem.readable(mem.principal(q.asker, audience))
+                    unreadable = (~ok[sg.nodes]).astype(np.float32)
                 out.append(Example(sg, mem.node_embeddings(sg.nodes), mem.query_embedding(q.question, q.asker),
                                    labels, q.id, q.category, cid, label, domain,
-                                   np.array([int(v) in stale for v in sg.nodes], np.float32) if stale else None))
+                                   np.array([int(v) in stale for v in sg.nodes], np.float32) if stale else None,
+                                   unreadable))
         if progress:
             print(f"[hgnn] {ds.name}: {len(ds.questions)} questions, {time.perf_counter() - t0:.1f}s")
     stats["candidate_recall"] = stats["evidence_in_candidates"] / max(1, stats["with_evidence"])

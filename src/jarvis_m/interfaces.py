@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from .types import Message
 
@@ -28,6 +28,8 @@ class Retrieval:
     context: str
     n_tokens: int
     info: Dict[str, Any] = field(default_factory=dict)
+    # access control: effective principal, how much was visible / filtered, enforcement mode
+    audit: Dict[str, Any] = field(default_factory=dict)
 
     @property
     def source_ids(self) -> List[str]:
@@ -65,7 +67,16 @@ class MemorySystem(ABC):
         budget_tokens: Optional[int] = None,
         max_items: Optional[int] = None,
         now: Optional[float] = None,
-    ) -> Retrieval: ...
+        audience: Optional[Any] = None,
+    ) -> Retrieval:
+        """``audience``: who will see the answer besides the asker: a channel name or a list
+        of principal ids (default: the asker alone). Systems with access control answer for
+        the meet of all of them; systems without it ignore the argument."""
+
+    def configure_access(self, annotations: Optional[Mapping[str, Any]] = None, **kw: Any) -> None:  # noqa: B027
+        """Load a channel / principal directory (``Dataset.annotations``). No-op for
+        systems without access control. Call after ``reset()`` and before ``ingest``."""
+        return None
 
     def stats(self) -> Dict[str, Any]:
         """Size / cost counters reported next to accuracy (nodes, LLM calls...)."""

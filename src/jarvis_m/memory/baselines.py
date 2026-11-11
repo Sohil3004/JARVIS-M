@@ -7,15 +7,21 @@ All share the same knobs so they double as ablation arms:
 * ``recency_half_life_days``: event-time decay applied to retrieval scores
 * ``order``: ``chronological`` (default) or ``score`` ordering inside the prompt
 * ``query_with_asker``: prepend the asker id to the query (GroupMemBench protocol)
+* ``access``: access-control policy (``jarvis_m.access``); messages the effective principal
+  may not read are never ranked, packed or returned. ``None`` = no access control.
+* ``idf_scope`` (BM25 / hybrid): ``global`` or ``view`` (collection statistics over the
+  readable messages only; see docs/ACCESS_CONTROL.md, residual leaks)
 """
 
 from __future__ import annotations
 
 import math
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
+from ..access import AccessViolation, Label, Principal, ThreadLabeler, build_access
+from ..access import log as access_log
 from ..embeddings import Embedder, build_embedder
 from ..interfaces import MemorySystem, Retrieval, RetrievedItem
 from ..text import ApproxTokenCounter, TokenCounter, pack, word_tokens
@@ -38,9 +44,12 @@ class MessageStoreMemory(MemorySystem):
         order: str = "chronological",
         query_with_asker: bool = True,
         counter: Optional[TokenCounter] = None,
+        access: Any = None,
     ) -> None:
         if scope not in _SCOPES:
             raise ValueError(f"scope must be one of {_SCOPES}")
+        self.access = build_access(access)
+        self._labeler: Optional[ThreadLabeler] = None
         self.scope = scope
         self.asker_boost = asker_boost
         self.half_life = recency_half_life_days
@@ -52,10 +61,73 @@ class MessageStoreMemory(MemorySystem):
     # -- lifecycle ---------------------------------------------------------
     def reset(self) -> None:
         self.messages = []
+        self._labeler = None
 
     def ingest(self, messages: Sequence[Message]) -> None:
         self.messages.extend(messages)
+        self._label(messages)
         self._on_ingest(messages)
+
+    # -- access control ----------------------------------------------------
+    def configure_access(self, annotations: Optional[Mapping[str, Any]] = None, **kw: Any) -> None:
+        """Load channels / principals (``Dataset.annotations``). Before ``ingest``: channel
+        defaults label messages as they arrive."""
+        if self.access is not None:
+            if self.messages and ((annotations or {}).get("channels") or kw.get("channels")):
+                raise RuntimeError("configure_access must run before ingest: channel defaults label messages")
+            self.access.configure(annotations, **kw)
+
+    def _label(self, messages: Sequence[Message]) -> None:
+        if self.access is None:
+            return
+        if self._labeler is None:
+            self._labeler = ThreadLabeler(self.access.policy.base_label)
+        for m in messages:
+            self._labeler.add(m)
+
+    def message_labels(self) -> Sequence[Label]:
+        """Effective label per stored message (only with access control)."""
+        return self._labeler.labels if self._labeler is not None else []
+
+    def principal(self, asker: Optional[str], audience: Any = None) -> Optional[Principal]:
+        """Who the answer must be safe for; None when there is no access control."""
+        return self.access.effective(asker, audience) if self.access is not None else None
+
+    def readable(self, principal: Optional[Principal]) -> np.ndarray:
+        """Per message: may ``principal`` read it? (all True without access control)."""
+        if self.access is None or principal is None:
+            return np.ones(len(self.messages), dtype=bool)
+        return self.access.mask(principal, self.message_labels(), [m.channel for m in self.messages])
+
+    def _final_check(self, nodes: Sequence[int], principal: Optional[Principal]) -> List[int]:
+        """Defence in depth: re-check every message about to be returned against the read
+        rule, straight from its label. Returns the nodes that must not go out (after
+        raising in debug mode)."""
+        if self.access is None or principal is None:
+            return []
+        labels = self.message_labels()
+        bad = [v for v in nodes
+               if not self.access.can_read(principal, labels[v], self.messages[v].channel)]
+        if bad and self.access.policy.enforce:
+            ids = [self.messages[v].id for v in bad]
+            if self.access.policy.mode == "debug":
+                raise AccessViolation(f"{self.name}: about to return {ids} to {principal.id}, who may not read them")
+            access_log.error("%s: withheld %d unreadable message(s) from %s: %s", self.name, len(bad), principal.id, ids)
+        return bad
+
+    def _audit(self, principal: Optional[Principal], asker: Optional[str], audience: Any,
+               visible: Optional[np.ndarray] = None, filtered: int = 0, **extra: Any) -> Dict[str, Any]:
+        if self.access is None or principal is None:
+            return {"mode": "off"}
+        vis = self.readable(principal) if visible is None else visible
+        enforced = self.access.policy.enforce
+        out = {"mode": self.access.policy.mode, "enforced": enforced,
+               "principal": self.access.describe(principal), "asker": asker, "audience": audience,
+               "visible": int(vis.sum()), "hidden": int(len(vis) - vis.sum()),
+               "filtered": int(filtered) if enforced else 0, **extra}
+        if not enforced:
+            out["unreadable_returned"] = int(filtered)  # measure-only: what would have been withheld
+        return out
 
     def _on_ingest(self, messages: Sequence[Message]) -> None:
         pass
@@ -76,12 +148,16 @@ class MessageStoreMemory(MemorySystem):
         if emb is not None and pairs:
             emb.encode_queries([self.query_text(q, a) for q, a in pairs])
 
-    def _candidates(self, asker: Optional[str]) -> np.ndarray:
+    def _candidates(self, asker: Optional[str], principal: Optional[Principal] = None) -> np.ndarray:
+        """Messages a query may use: the speaker-scope ablation and the access mask."""
         n = len(self.messages)
-        if self.scope == "all" or asker is None:
-            return np.ones(n, dtype=bool)
-        is_asker = np.array([m.speaker == asker for m in self.messages], dtype=bool)
-        return is_asker if self.scope == "asker" else ~is_asker
+        cand = np.ones(n, dtype=bool)
+        if self.scope != "all" and asker is not None:
+            is_asker = np.array([m.speaker == asker for m in self.messages], dtype=bool)
+            cand = is_asker if self.scope == "asker" else ~is_asker
+        if principal is not None and self.access is not None and self.access.policy.enforce:
+            cand = cand & self.readable(principal)
+        return cand
 
     def _adjust(self, scores: np.ndarray, asker: Optional[str], now: Optional[float]) -> np.ndarray:
         s = scores.astype(np.float64).copy()
@@ -94,25 +170,31 @@ class MessageStoreMemory(MemorySystem):
             s *= np.exp(-lam * np.clip(now - ts, 0, None))
         return s
 
-    def rank(self, query: str, asker: Optional[str] = None, now: Optional[float] = None) -> List[Tuple[int, float]]:
+    def rank(self, query: str, asker: Optional[str] = None, now: Optional[float] = None,
+             principal: Optional[Principal] = None) -> List[Tuple[int, float]]:
         if not self.messages:
             return []
-        cand = self._candidates(asker)
+        cand = self._candidates(asker, principal)
         s = self._adjust(self._raw_scores(self.query_text(query, asker), cand), asker, now)
         idx = np.nonzero(cand)[0]
         idx = idx[np.argsort(-s[idx], kind="stable")]
         return [(int(i), float(s[i])) for i in idx]
 
-    def retrieve(self, query, *, asker=None, budget_tokens=None, max_items=None, now=None) -> Retrieval:
-        ranked = self.rank(query, asker, now)
+    def retrieve(self, query, *, asker=None, budget_tokens=None, max_items=None, now=None, audience=None) -> Retrieval:
+        principal = self.principal(asker, audience)
+        ranked = self.rank(query, asker, now, principal)
         kept, _, _ = pack(
             ranked, lambda r: self.messages[r[0]].render(), self.counter, budget_tokens, max_items
         )
+        bad = set(self._final_check([i for i, _ in kept], principal))
+        if bad and self.access.policy.enforce:
+            kept = [r for r in kept if r[0] not in bad]
         if self.order == "chronological":
             kept = sorted(kept, key=lambda r: r[0])
         items = [self._item(i, sc) for i, sc in kept]
         ctx = "\n\n".join(it.text for it in items)
-        return Retrieval(items, ctx, self.counter.count(ctx), {"candidates": len(ranked)})
+        return Retrieval(items, ctx, self.counter.count(ctx), {"candidates": len(ranked)},
+                         self._audit(principal, asker, audience, filtered=len(bad)))
 
     def _item(self, i: int, score: float) -> RetrievedItem:
         m = self.messages[i]
@@ -137,8 +219,8 @@ class FullContext(RecencyWindow):
 
     name = "full_context"
 
-    def retrieve(self, query, *, asker=None, budget_tokens=None, max_items=None, now=None) -> Retrieval:
-        r = super().retrieve(query, asker=asker, budget_tokens=None, max_items=None, now=now)
+    def retrieve(self, query, *, asker=None, budget_tokens=None, max_items=None, now=None, audience=None) -> Retrieval:
+        r = super().retrieve(query, asker=asker, budget_tokens=None, max_items=None, now=now, audience=audience)
         r.info["over_budget"] = bool(budget_tokens is not None and r.n_tokens > budget_tokens)
         return r
 
@@ -146,9 +228,11 @@ class FullContext(RecencyWindow):
 class BM25Memory(MessageStoreMemory):
     name = "bm25"
 
-    def __init__(self, k1: float = 1.5, b: float = 0.75, **kw) -> None:
+    def __init__(self, k1: float = 1.5, b: float = 0.75, idf_scope: str = "global", **kw) -> None:
         super().__init__(**kw)
-        self.k1, self.b = k1, b
+        if idf_scope not in ("global", "view"):
+            raise ValueError("idf_scope must be 'global' or 'view'")
+        self.k1, self.b, self.idf_scope = k1, b, idf_scope
         self.index = BM25Index(k1, b)
 
     def reset(self) -> None:
@@ -159,7 +243,9 @@ class BM25Memory(MessageStoreMemory):
         self.index.add([word_tokens(m.text) for m in messages])
 
     def _raw_scores(self, query: str, mask: Optional[np.ndarray] = None) -> np.ndarray:
-        return self.index.scores(word_tokens(query))
+        # global: IDF and average length come from every stored message, hidden ones included
+        # (a small statistical leak); view: from the messages the query may use
+        return self.index.scores(word_tokens(query), mask if self.idf_scope == "view" else None)
 
 
 class DenseMemory(MessageStoreMemory):
@@ -205,10 +291,10 @@ class HybridMemory(MessageStoreMemory):
     name = "hybrid"
 
     def __init__(self, embedder: Optional[dict] = None, rrf_k: int = 60, bm25_weight: float = 1.0,
-                 dense_weight: float = 1.0, **kw) -> None:
+                 dense_weight: float = 1.0, idf_scope: str = "global", **kw) -> None:
         super().__init__(**kw)
         inner = dict(scope="all", query_with_asker=False, counter=self.counter)
-        self.bm25 = BM25Memory(**inner)
+        self.bm25 = BM25Memory(idf_scope=idf_scope, **inner)
         self.dense = DenseMemory(embedder=embedder, **inner)
         self.rrf_k, self.wb, self.wd = rrf_k, bm25_weight, dense_weight
 

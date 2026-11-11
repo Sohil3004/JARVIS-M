@@ -1,0 +1,67 @@
+# Access-control policy (docs/ACCESS_CONTROL.md). Use it from a memory config:
+#   memory: {type: hypergraph, access: configs/access/default.yaml, idf_scope: view}
+# or with overrides:
+#   memory: {type: hypergraph, access: {policy: configs/access/default.yaml, mode: debug}}
+# Channel membership and principals come from the dataset (annotations "channels" and
+# "principals") or from memory.configure_access(channels=..., principals=...).
+access:
+  # Clearance levels, lowest first. A principal reads a message when its level is at least
+  # the message's level (and it holds every compartment of the message).
+  levels: [public, intern, L1, L2, manager, exec]
+
+  # Role -> level, for principals given as {role: ...} instead of {level: ...}.
+  roles:
+    guest: public
+    intern: intern
+    engineer: L1
+    senior: L2
+    lead: L2
+    manager: manager
+    director: manager
+    exec: exec
+
+  # Label of a message in a channel that has no entry below.
+  default_level: public
+
+  # Per-channel default level and compartments. A dataset's channel directory can raise
+  # these, never lower them.
+  channels:
+    general: {level: public}
+    eng: {level: intern}
+    leadership: {level: manager, compartments: [leadership]}
+    hr: {level: L2, compartments: [hr]}
+    legal: {level: L2, compartments: [legal]}
+
+  # Explicit markers in the message text (case-insensitive regular expressions). A marker
+  # can only raise the label.
+  markers:
+    - {pattern: '\[CONFIDENTIAL\]', level: L2}
+    - {pattern: '\[MANAGERS ONLY\]', level: manager}
+    - {pattern: '\[EXEC ONLY\]', level: exec}
+    - {pattern: '\[HR\]', compartments: [hr]}
+    - {pattern: '\[LEGAL\]', compartments: [legal]}
+
+  # With a channel directory: a channel the directory does not list is closed to everyone
+  # ("closed") or readable by anyone cleared for the label ("open").
+  unlisted_channels: closed
+
+  # false: a viewer never learns that a value has a newer version they cannot read.
+  # true: retrieval adds the neutral note "this may have been updated in a restricted
+  # context" (and nothing else) to such a value.
+  signal_hidden_updates: false
+
+  # An inactive principal in the audience: "block" answers with nothing (fail closed),
+  # "ignore" leaves that principal out of the audience.
+  inactive_audience_members: block
+
+  # Let an extractor's `sensitivity` suggestion raise a message's label.
+  use_extractor_suggestions: true
+
+  # Final check before anything is returned: "prod" filters and logs, "debug" raises
+  # AccessViolation. The environment variable JARVIS_ACCESS_MODE overrides this (the test
+  # suite sets it to debug).
+  mode: prod
+
+  # false = measurement only: labels and audit are computed, nothing is filtered. Used to
+  # measure what an unprotected system would leak (rank-eval leak_rate). Never in production.
+  enforce: true

@@ -4,7 +4,7 @@ Task: `docs/prompts/generalise_v1.md`. Phases A–C are done; D–F are not star
 All numbers on this page are CPU numbers (hashing embedder, heuristic extractor). They
 are for before/after comparison only, not for the paper.
 
-Tests: 75 passed + 4 xfailed before phase A.
+Tests: 75 passed + 4 xfailed before phase A; 142 passed + 4 xfailed after phase C.
 
 ## Phase A: measurement infrastructure
 
@@ -199,3 +199,79 @@ Mean superseded fraction: LoCoMo 0.0045 to 0.0044, LongMemEval 0.0104 to 0.0103.
 * First-name matching ("Priya" for the participant "Priya Sharma") uses the participants
   seen up to that point in time.
 * The top-by-base rule can drop a low-scoring seed from a very large edge.
+
+## Phase C: clearance-aware access control
+
+### What changed
+
+* `jarvis_m/access.py`: `Label`, `join`, `Principal`, `meet`, `ChannelDirectory`,
+  `AccessPolicy`, `ThreadLabeler`, `AccessController` (`resolve`, `effective`, `can_read`,
+  `mask`), `AccessViolation`, and the `Redactor` interface stub.
+* `configs/access/default.yaml`: levels, roles, channel defaults, markers and the policy
+  knobs.
+* Every message-level memory and the hypergraph memory take `access:` and enforce it:
+  candidate mask, seeds over visible messages, view-based expansion, features, header and
+  packing, final check, and `Retrieval.audit`.
+* `retrieve(..., audience=None)` on every memory system. `MemorySystem.configure_access`
+  loads the dataset's channel and principal directory; the runner and `build_examples`
+  call it, and pass `question.meta["audience"]`.
+* BM25 `idf_scope: global | view` (also on `hybrid` and `hypergraph`).
+* `rank-eval` reports `leak_rate` for datasets with ACL metadata (Phase A8).
+* Measure-only mode (`enforce: false`) for computing what an unprotected system would leak.
+* Viewer-relative state from phase B; optional neutral note for hidden updates.
+* `tests/fixtures/toy_enterprise.json`: three channels, five principals, a confidential
+  deadline update, a manager-only hosting update, a compartmented decision, audience
+  questions.
+* `docs/ACCESS_CONTROL.md`.
+
+### Tests added
+
+`tests/test_access.py` (27 tests): policy and labels, audience meet, membership at query
+time, viewer-relative current values, hidden-update signalling, the debug / prod final
+check, baseline enforcement, measure-only mode, non-interference on 6 random enterprise
+fixtures (graph state and retrieval), the BM25 residual, property tests over random
+principals and audiences, leak rate, and runner audit rows. `tests/conftest.py` sets
+`JARVIS_ACCESS_MODE=debug`.
+
+### Decisions
+
+* **Final check placement.** Ranked nodes and the nodes quoted by the state header are
+  checked before packing, so a violation can never reach the context. The check reads labels
+  and the directory directly, not the view mask.
+* **Audience includes the asker.** The meet is over the asker and every audience member.
+  An unknown or unlisted closed channel as audience gives an inactive principal (nothing).
+  An open channel gives "anyone" (level 0, no compartments, member of open channels only).
+* **Inactive audience members** block the answer by default (fail closed).
+* **Unknown askers** are anonymous principals at the lowest level with no compartments.
+* **Unlisted channels are closed** when access control is on. Without a channel directory
+  in the dataset, configure one or set `unlisted_channels: open`.
+* **Levels by name.** `acl_level` may be a level name, a role name or an index. Without a
+  policy, names from the default level list are accepted, so labels exist (and split
+  visibility classes) even when nothing is enforced.
+* **`idf_scope` default stays `global`**, so numbers on non-ACL data do not move. The
+  non-interference test uses `view`; the residual is documented and tested.
+* **Extractor suggestions** are read from `StateRecord.meta["sensitivity"]` (a level, or
+  `{level, compartments}`); unknown levels are ignored. The LLM extractor emits them in
+  phase D.
+* **Hidden-update note.** It is attached to the header line of the affected slot, or added
+  as a separate `notice` item when there is no state header. It is the only place that
+  reads the omniscient view, and only when the option is on.
+* **Audit.** `filtered` counts items the final check removed. In measure-only mode it is 0
+  and `unreadable_returned` holds the count instead.
+
+### Measurements (CPU)
+
+Unchanged on non-ACL data (same MRR as phases A and B on StateBench, LoCoMo and
+LongMemEval; same supersession numbers). On the toy enterprise fixture, `leak_rate` is 0
+with enforcement and above 0 in measure-only mode (asserted in the tests).
+
+### Known limitations
+
+* See "Residual leaks" in `docs/ACCESS_CONTROL.md`: global BM25 statistics, learned
+  weights, extraction context, timing and audit counts, and membership changes after
+  ingest.
+* `legacy_v2` has no access control.
+* Labels are fixed at ingest from the policy in force then; changing a channel's default
+  level requires rebuilding the memory.
+* There is no enterprise benchmark yet (StateBench enterprise domain is phase E), so there
+  is no `leak_rate` number on real-sized data.

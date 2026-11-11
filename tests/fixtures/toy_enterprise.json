@@ -1,0 +1,328 @@
+{
+ "name": "toy_enterprise",
+ "conversations": [
+  {
+   "id": "acme",
+   "messages": [
+    {
+     "id": "g0",
+     "speaker": "Bob",
+     "text": "We decided to use AWS EC2 for the backend hosting.",
+     "timestamp": 1767225600,
+     "channel": "general",
+     "session_id": "general-d0"
+    },
+    {
+     "id": "g1",
+     "speaker": "Ivy",
+     "text": "lunch at 1?",
+     "timestamp": 1767226200,
+     "channel": "general",
+     "session_id": "general-d0"
+    },
+    {
+     "id": "e0",
+     "speaker": "Bob",
+     "text": "Deadline for the beta launch: March 14.",
+     "timestamp": 1767226800,
+     "channel": "eng",
+     "session_id": "eng-d0"
+    },
+    {
+     "id": "e1",
+     "speaker": "Mira",
+     "text": "[CONFIDENTIAL] The beta launch has been rescheduled to April 2.",
+     "timestamp": 1767227400,
+     "channel": "eng",
+     "session_id": "eng-d0"
+    },
+    {
+     "id": "e2",
+     "speaker": "Dana",
+     "text": "Understood, I will tell the board about the beta launch slip.",
+     "timestamp": 1767228000,
+     "channel": "eng",
+     "session_id": "eng-d0",
+     "reply_to": "e1"
+    },
+    {
+     "id": "g2",
+     "speaker": "Mira",
+     "text": "Change of plan: we switched the backend hosting to Google Cloud Run instead.",
+     "timestamp": 1767228600,
+     "channel": "general",
+     "session_id": "general-d0",
+     "meta": {
+      "acl_level": "manager"
+     }
+    },
+    {
+     "id": "l0",
+     "speaker": "Dana",
+     "text": "We decided to acquire Initech for the growth plan.",
+     "timestamp": 1767229200,
+     "channel": "leadership",
+     "session_id": "leadership-d0",
+     "meta": {
+      "acl_compartments": [
+       "deal"
+      ]
+     }
+    },
+    {
+     "id": "l1",
+     "speaker": "Mira",
+     "text": "The growth plan review is due Friday 5 PM.",
+     "timestamp": 1767229800,
+     "channel": "leadership",
+     "session_id": "leadership-d0"
+    },
+    {
+     "id": "e3",
+     "speaker": "Bob",
+     "text": "I'll take the load testing for the release.",
+     "timestamp": 1767230400,
+     "channel": "eng",
+     "session_id": "eng-d0"
+    },
+    {
+     "id": "e4",
+     "speaker": "Ivy",
+     "text": "The staging deploy is failing with Error 403.",
+     "timestamp": 1767231000,
+     "channel": "eng",
+     "session_id": "eng-d0"
+    },
+    {
+     "id": "e5",
+     "speaker": "Bob",
+     "text": "Fixed the staging deploy by rotating the credentials.",
+     "timestamp": 1767231600,
+     "channel": "eng",
+     "session_id": "eng-d0",
+     "reply_to": "e4"
+    },
+    {
+     "id": "g3",
+     "speaker": "Ivy",
+     "text": "thanks Bob!",
+     "timestamp": 1767232200,
+     "channel": "general",
+     "session_id": "general-d0"
+    }
+   ]
+  }
+ ],
+ "questions": [
+  {
+   "id": "acme/q0",
+   "conversation_id": "acme",
+   "question": "What are we using for the backend hosting?",
+   "answer": "AWS EC2",
+   "asker": "Bob",
+   "category": "single_hop",
+   "evidence_ids": [
+    "g0"
+   ],
+   "stale_answers": [],
+   "stale_evidence_ids": [],
+   "is_abstention": false,
+   "question_time": 1767236400,
+   "meta": {}
+  },
+  {
+   "id": "acme/q1",
+   "conversation_id": "acme",
+   "question": "What are we using for the backend hosting?",
+   "answer": "Google Cloud Run",
+   "asker": "Mira",
+   "category": "knowledge_update",
+   "evidence_ids": [
+    "g2"
+   ],
+   "stale_answers": [
+    "AWS EC2"
+   ],
+   "stale_evidence_ids": [
+    "g0"
+   ],
+   "is_abstention": false,
+   "question_time": 1767236400,
+   "meta": {}
+  },
+  {
+   "id": "acme/q2",
+   "conversation_id": "acme",
+   "question": "What are we using for the backend hosting?",
+   "answer": "AWS EC2",
+   "asker": "Mira",
+   "category": "single_hop",
+   "evidence_ids": [
+    "g0"
+   ],
+   "stale_answers": [],
+   "stale_evidence_ids": [],
+   "is_abstention": false,
+   "question_time": 1767236400,
+   "meta": {
+    "audience": [
+     "Bob",
+     "Mira"
+    ]
+   }
+  },
+  {
+   "id": "acme/q3",
+   "conversation_id": "acme",
+   "question": "When is the beta launch?",
+   "answer": "March 14",
+   "asker": "Bob",
+   "category": "single_hop",
+   "evidence_ids": [
+    "e0"
+   ],
+   "stale_answers": [],
+   "stale_evidence_ids": [],
+   "is_abstention": false,
+   "question_time": 1767236400,
+   "meta": {}
+  },
+  {
+   "id": "acme/q4",
+   "conversation_id": "acme",
+   "question": "When is the beta launch?",
+   "answer": "April 2",
+   "asker": "Dana",
+   "category": "knowledge_update",
+   "evidence_ids": [
+    "e1"
+   ],
+   "stale_answers": [
+    "March 14"
+   ],
+   "stale_evidence_ids": [
+    "e0"
+   ],
+   "is_abstention": false,
+   "question_time": 1767236400,
+   "meta": {}
+  },
+  {
+   "id": "acme/q5",
+   "conversation_id": "acme",
+   "question": "Is the staging deploy problem resolved?",
+   "answer": "Yes, it was resolved by rotating the credentials.",
+   "asker": "Ivy",
+   "category": "knowledge_update",
+   "evidence_ids": [
+    "e4",
+    "e5"
+   ],
+   "stale_answers": [],
+   "stale_evidence_ids": [],
+   "is_abstention": false,
+   "question_time": 1767236400,
+   "meta": {}
+  },
+  {
+   "id": "acme/q6",
+   "conversation_id": "acme",
+   "question": "Which company are we acquiring?",
+   "answer": "Not mentioned in the conversation",
+   "asker": "Bob",
+   "category": "abstention",
+   "evidence_ids": [],
+   "stale_answers": [],
+   "stale_evidence_ids": [],
+   "is_abstention": true,
+   "question_time": 1767236400,
+   "meta": {}
+  },
+  {
+   "id": "acme/q7",
+   "conversation_id": "acme",
+   "question": "Which company are we acquiring for the growth plan?",
+   "answer": "Initech",
+   "asker": "Dana",
+   "category": "single_hop",
+   "evidence_ids": [
+    "l0"
+   ],
+   "stale_answers": [],
+   "stale_evidence_ids": [],
+   "is_abstention": false,
+   "question_time": 1767236400,
+   "meta": {}
+  },
+  {
+   "id": "acme/q8",
+   "conversation_id": "acme",
+   "question": "When is the beta launch?",
+   "answer": "March 14",
+   "asker": "Dana",
+   "category": "single_hop",
+   "evidence_ids": [
+    "e0"
+   ],
+   "stale_answers": [],
+   "stale_evidence_ids": [],
+   "is_abstention": false,
+   "question_time": 1767236400,
+   "meta": {
+    "audience": "eng"
+   }
+  }
+ ],
+ "annotations": {
+  "channels": {
+   "general": {
+    "members": "*",
+    "level": "public"
+   },
+   "eng": {
+    "members": [
+     "Dana",
+     "Mira",
+     "Bob",
+     "Ivy"
+    ],
+    "level": "intern"
+   },
+   "leadership": {
+    "members": [
+     "Dana",
+     "Mira"
+    ],
+    "level": "manager",
+    "compartments": [
+     "leadership"
+    ]
+   }
+  },
+  "principals": {
+   "Dana": {
+    "role": "exec",
+    "compartments": [
+     "leadership",
+     "deal"
+    ]
+   },
+   "Mira": {
+    "level": "manager",
+    "compartments": [
+     "leadership"
+    ]
+   },
+   "Bob": {
+    "role": "engineer"
+   },
+   "Ivy": {
+    "level": "intern"
+   },
+   "Zed": {
+    "level": "L2",
+    "active": false
+   }
+  }
+ }
+}
