@@ -1,0 +1,10 @@
+#!/bin/sh
+# Enforce one-line commit messages: keep the first non-empty, non-comment line, drop the rest
+# (bodies, Co-Authored-By / Claude-Session trailers). Enable with: git config core.hooksPath .githooks
+f="$1"
+line=$(grep -v '^#' "$f" | sed -n '/[^[:space:]]/{s/[[:space:]]*$//;p;q}')
+if [ -z "$line" ]; then
+  echo "commit-msg: empty commit message" >&2
+  exit 1
+fi
+printf '%s\n' "$line" > "$f"
