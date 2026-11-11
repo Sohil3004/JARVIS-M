@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
 
+from ...access import conversation_directory
 from ...data.loaders import dataset_domain, load_dataset
 from .. import build_memory
 from .subgraph import FEATURE_NAMES, fixed_propagation
@@ -44,8 +45,8 @@ class Example:
 def has_acl_metadata(ds, conv) -> bool:
     """A dataset has access-control metadata when it ships a channel or principal directory,
     or any of the conversation's messages carries an ``acl_*`` field."""
-    ann = ds.annotations or {}
-    return bool(ann.get("channels") or ann.get("principals")) or any(
+    d = conversation_directory(ds.annotations, conv.id)
+    return bool(d["channels"] or d["principals"]) or any(
         m.meta and ("acl_level" in m.meta or "acl_compartments" in m.meta) for m in conv.messages)
 
 
@@ -54,10 +55,12 @@ def build_examples(memory_cfg: Dict[str, Any], datasets: Sequence[Dict[str, Any]
     out: List[Example] = []
     stats = {"questions": 0, "with_evidence": 0, "evidence_in_candidates": 0}
     graph_stats: List[Dict[str, float]] = []  # per conversation graph, for supersession diagnostics
+    weights: Dict[str, float] = {}  # dataset label -> sampling weight (config `weight:`, default 1)
     for dcfg in datasets:
         domain = dataset_domain(dcfg, required=require_domain)
         ds = load_dataset(dcfg)
         label = dcfg.get("label") or ds.name
+        weights[label] = float(dcfg.get("weight", 1.0))
         t0 = time.perf_counter()
         for cid, conv in ds.conversations.items():
             qs = [q for q in ds.questions_for(cid) if q.evidence_ids and not q.is_abstention]
@@ -66,7 +69,7 @@ def build_examples(memory_cfg: Dict[str, Any], datasets: Sequence[Dict[str, Any]
                 continue
             mem = build_memory(memory_cfg, tokenizer)
             mem.reset()
-            mem.configure_access(ds.annotations)
+            mem.configure_access(conversation_directory(ds.annotations, cid))
             mem.ingest(conv.messages)
             g = mem.graph
             has_acl = mem.access is not None and has_acl_metadata(ds, conv)
@@ -97,7 +100,7 @@ def build_examples(memory_cfg: Dict[str, Any], datasets: Sequence[Dict[str, Any]
     stats["candidate_recall"] = stats["evidence_in_candidates"] / max(1, stats["with_evidence"])
     for key in ("superseded_fraction", "chains_per_100_messages"):
         stats[key] = float(np.mean([s[key] for s in graph_stats])) if graph_stats else 0.0
-    return {"examples": out, "stats": stats}
+    return {"examples": out, "stats": stats, "weights": weights}
 
 
 def ranking_metrics(scores: np.ndarray, labels: np.ndarray, k: int) -> Dict[str, float]:
@@ -116,13 +119,56 @@ def evaluate(examples: Sequence[Example], score_fn, k: int) -> Dict[str, float]:
     return {key: float(np.mean([m[key] for m in ms])) for key in ms[0]}
 
 
+def sampling_probs(examples: Sequence[Example], weights: Dict[str, float], temperature: float) -> Dict[str, float]:
+    """Probability of drawing each training dataset: proportional to (weight x size) ** T.
+    T = 1: proportional to size (weighted), T = 0: uniform over datasets."""
+    sizes: Dict[str, int] = {}
+    for e in examples:
+        sizes[e.dataset] = sizes.get(e.dataset, 0) + 1
+    raw = {d: (float(weights.get(d, 1.0)) * n) ** float(temperature) for d, n in sizes.items()}
+    tot = sum(raw.values())
+    return {d: v / tot for d, v in raw.items()}
+
+
+def epoch_order(examples: Sequence[Example], probs: Dict[str, float], rng: random.Random) -> List[Example]:
+    """One epoch of len(examples) draws: a dataset by ``probs``, then one of its examples.
+    Inside a dataset, examples are drawn without replacement until it is exhausted, then reshuffled."""
+    by: Dict[str, List[Example]] = {}
+    for e in examples:
+        by.setdefault(e.dataset, []).append(e)
+    if len(by) == 1:
+        out = list(examples)
+        rng.shuffle(out)
+        return out
+    names = sorted(by)
+    bags: Dict[str, List[Example]] = {d: [] for d in names}
+    out = []
+    for d in rng.choices(names, weights=[probs[d] for d in names], k=len(examples)):
+        if not bags[d]:
+            bags[d] = list(by[d])
+            rng.shuffle(bags[d])
+        out.append(bags[d].pop())
+    return out
+
+
+def macro_dev(examples: Sequence[Example], score_fn, k: int) -> Dict[str, Any]:
+    """Dev metrics per domain and their unweighted mean (the early-stopping key)."""
+    by: Dict[str, List[Example]] = {}
+    for e in examples:
+        by.setdefault(e.domain or "all", []).append(e)
+    per = {d: evaluate(ex, score_fn, k) for d, ex in sorted(by.items())}
+    keys = list(next(iter(per.values())).keys()) if per else []
+    macro = {key: float(np.mean([m[key] for m in per.values()])) for key in keys}
+    return {**macro, "domains": per}
+
+
 def train_hgnn(cfg: Dict[str, Any], progress: bool = True) -> Path:
     import torch
 
     from .hgnn import HGNN, resolve_device, to_tensors
 
     tcfg = {"epochs": 15, "lr": 1e-3, "weight_decay": 1e-4, "seed": 0, "device": "auto", "eval_k": 10,
-            "patience": 4, **(cfg.get("train") or {})}
+            "patience": 4, "sampling_temperature": 0.5, **(cfg.get("train") or {})}
     random.seed(tcfg["seed"])
     np.random.seed(tcfg["seed"])
     torch.manual_seed(tcfg["seed"])
@@ -140,12 +186,16 @@ def train_hgnn(cfg: Dict[str, Any], progress: bool = True) -> Path:
 
     edge_w = DEFAULT_PROP
     baselines = {
-        "seeds": evaluate(dev_ex, lambda e: e.sg.base, k),
-        "fixed": evaluate(dev_ex, lambda e: fixed_propagation(e.sg, edge_w), k),
+        "seeds": macro_dev(dev_ex, lambda e: e.sg.base, k) if dev_ex else {},
+        "fixed": macro_dev(dev_ex, lambda e: fixed_propagation(e.sg, edge_w), k) if dev_ex else {},
     }
+    weights = tr["weights"]
+    probs = sampling_probs(train, weights, tcfg["sampling_temperature"])
+    order_rng = random.Random(tcfg["seed"])
     if progress:
         print(f"[hgnn] train={len(train)} dev={len(dev_ex)} | candidate recall train={tr['stats']['candidate_recall']:.3f} "
-              f"dev={dv['stats']['candidate_recall']:.3f} | dev seeds={baselines['seeds']} fixed={baselines['fixed']}")
+              f"dev={dv['stats']['candidate_recall']:.3f} | sampling {probs}")
+        print(f"[hgnn] dev macro seeds MRR={baselines['seeds'].get('mrr')} fixed MRR={baselines['fixed'].get('mrr')}")
 
     model = HGNN(emb_dim=train[0].x.shape[1], **(cfg.get("model") or {})).to(dev)
     opt = torch.optim.AdamW(model.parameters(), lr=tcfg["lr"], weight_decay=tcfg["weight_decay"])
@@ -159,9 +209,8 @@ def train_hgnn(cfg: Dict[str, Any], progress: bool = True) -> Path:
     best, best_state, bad, history = float("-inf"), None, 0, []  # no dev data: key is -loss (< -1 possible)
     for ep in range(int(tcfg["epochs"])):
         model.train()
-        random.shuffle(train)
         tot = 0.0
-        for e in train:
+        for e in epoch_order(train, probs, order_rng):
             s = model(*cache[id(e)])
             y = torch.as_tensor(e.labels, device=dev) > 0
             loss = torch.logsumexp(s, 0) - torch.logsumexp(s[y], 0)  # listwise, multi-positive
@@ -170,10 +219,12 @@ def train_hgnn(cfg: Dict[str, Any], progress: bool = True) -> Path:
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             opt.step()
             tot += loss.item()
-        m = evaluate(dev_ex, score, k) if dev_ex else {"mrr": -tot}
+        m = macro_dev(dev_ex, score, k) if dev_ex else {"mrr": -tot}  # early stopping on the macro over domains
         history.append({"epoch": ep + 1, "loss": tot / len(train), **m})
         if progress:
-            print(f"[hgnn] epoch {ep + 1}: loss={tot / len(train):.4f} dev={m}")
+            per = {d: round(v.get("mrr", 0), 4) for d, v in m.get("domains", {}).items()}
+            print(f"[hgnn] epoch {ep + 1}: loss={tot / len(train):.4f} dev macro MRR={m.get('mrr'):.4f} "
+                  f"R@{k}={m.get(f'recall@{k}', 0):.4f} per domain {per}")
         key = m.get(f"recall@{k}", 0) + m.get("mrr", 0)
         if key > best:
             best, bad = key, 0
@@ -186,7 +237,8 @@ def train_hgnn(cfg: Dict[str, Any], progress: bool = True) -> Path:
     out = Path(cfg.get("output", f"models/hgnn/{cfg.get('name', 'hgnn')}.pt"))
     out.parent.mkdir(parents=True, exist_ok=True)
     meta = {"name": cfg.get("name"), "memory": cfg["memory"], "train_stats": tr["stats"], "dev_stats": dv["stats"],
-            "dev_baselines": baselines, "history": history}
+            "dev_baselines": baselines, "history": history, "sampling": probs,
+            "sampling_temperature": tcfg["sampling_temperature"]}
     torch.save({"state_dict": best_state, "config": model.cfg, "feature_names": list(FEATURE_NAMES), "meta": meta}, out)
     out.with_suffix(".json").write_text(json.dumps(meta, indent=2, default=str), encoding="utf-8")
     if progress:

@@ -1,0 +1,11 @@
+# Ranking on the external datasets with evidence ids (docs/DATASETS.md). Fetch first:
+#   jarvis-eval data fetch evermembench ; jarvis-eval data fetch convomem ; jarvis-eval data fetch socialmembench
+#   pip install 'jarvis-m[data]'   # pyarrow, for the SocialMemBench parquet files
+#   jarvis-eval rank-eval configs/eval/rank_external.yaml --arm hgnn_v2_mix=models/hgnn/hgnn_v2_mix_s{0,1,2}.pt
+base: ../hypergraph_base.yaml
+memory: {idf_scope: view}
+k: [5, 10]
+datasets:
+  - {label: EverMemBench-Dynamic, domain: team, name: evermembench}
+  - {label: ConvoMem changing evidence, domain: assistant, name: convomem, evidence_types: [changing_evidence], persons: 10}
+  - {label: SocialMemBench, domain: personal, name: socialmembench}

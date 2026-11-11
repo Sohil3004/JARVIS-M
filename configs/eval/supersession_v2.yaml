@@ -1,0 +1,19 @@
+# Version-chain quality on StateBench v1 test and v2 (all domains), heuristic extractor:
+# the pre-LLM baseline (docs/CHANGES_generalise.md, phase E). Data: docs/RUNBOOK_generalise.md, step 0.
+#   jarvis-eval supersession-eval configs/eval/supersession_v2.yaml
+# With an LLM extraction cache (one per dataset, from `jarvis-eval extract`):
+#   --set memory.extractor.type=cached --set memory.extractor.path=...   (per dataset: see the runbook)
+# B4 ablation (global linking evidence instead of the 500-message window):
+#   --set memory.link_df_window=1000000000
+memory: {type: hypergraph, embedder: {type: hashing}, extractor: {type: heuristic}}
+labels: [data/labels/supersession]
+datasets:
+  - {label: StateBench v1 test, domain: team, name: jarvis, path: data/stress/statebench_test.json}
+  - {label: SB2 team test, domain: team, name: jarvis, path: data/stress/statebench_v2_team_test.json}
+  - {label: SB2 assistant test, domain: assistant, name: jarvis, path: data/stress/statebench_v2_assistant_test.json}
+  - {label: SB2 personal test, domain: personal, name: jarvis, path: data/stress/statebench_v2_personal_test.json}
+  - {label: SB2 enterprise test, domain: enterprise, name: jarvis, path: data/stress/statebench_v2_enterprise_test.json}
+  - {label: SB2 personal test + LoCoMo background, domain: personal, name: jarvis,
+     path: data/stress/statebench_v2_personal_test_bglocomo.json}
+  - {label: SB2 assistant test + LongMemEval background, domain: assistant, name: jarvis,
+     path: data/stress/statebench_v2_assistant_test_bglongmemeval.json}

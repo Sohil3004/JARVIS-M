@@ -148,7 +148,11 @@ experiment as `memory: {type: <name>, ...}`. Ablations are `arms` that flip its 
 | GroupMemBench | primary multi-party eval (no gold evidence ids) | MIT |
 | LoCoMo | standard long-term memory eval, has evidence ids | CC BY-NC 4.0: eval only, not product training |
 | LongMemEval | knowledge updates, abstention, has evidence turns | MIT |
-| EverMemBench | multi-group eval (loader TODO) | see repo |
+| EverMemBench-Dynamic | multi-group eval, has evidence ranges | Apache-2.0 |
+| ConvoMem | assistant memory, evidence quoted by text | CC BY-NC 4.0 |
+| SocialMemBench | social group chats, evidence anchors | CC BY 4.0 |
+
+Details and what was found in each release: `docs/DATASETS.md`.
 
 ## Status
 
@@ -157,7 +161,8 @@ experiment as `memory: {type: <name>, ...}`. Ablations are `arms` that flip its 
 - [x] Hypergraph memory, fixed propagation, learned HGNN + trainer
 - [x] Jarvis-StateBench stress generator (held-out phrasing test split)
 - [ ] GPU runs: Qwen extraction, HGNN with Qwen3-Embedding, full ablation grids + judge pass
-- [ ] EverMemBench loader; LoCoMo held-out-conversation HGNN eval
+- [x] EverMemBench, ConvoMem and SocialMemBench loaders
+- [ ] LoCoMo held-out-conversation HGNN eval
 - [ ] External baselines (Mem0, Zep/Graphiti, HippoRAG 2, LLMLingua-2)
 
 Licence: MIT (see `LICENSE`).

@@ -459,6 +459,16 @@ class AccessController:
                 "compartments": sorted(p.compartments), "active": p.active, "members": list(p.members)}
 
 
+def conversation_directory(annotations: Optional[Mapping[str, Any]], conversation_id: str) -> Dict[str, Any]:
+    """The channel / principal directory for one conversation: the dataset-wide ``channels``
+    and ``principals`` blocks, overridden by ``annotations["access"][conversation_id]`` (for
+    datasets whose conversations each have their own people, like StateBench v2 enterprise)."""
+    ann = annotations or {}
+    per = (ann.get("access") or {}).get(conversation_id) or {}
+    return {"channels": {**(ann.get("channels") or {}), **(per.get("channels") or {})},
+            "principals": {**(ann.get("principals") or {}), **(per.get("principals") or {})}}
+
+
 _MODES = ("off", "auto", "on")
 
 

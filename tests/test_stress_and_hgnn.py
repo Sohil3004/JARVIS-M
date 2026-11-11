@@ -60,3 +60,26 @@ def test_hgnn_trains_saves_and_scores(tmp_path):
     with pytest.raises(ValueError, match="emb_dim"):
         bad.retrieve(q.question, asker=q.asker)
     assert isinstance(HGNNScorer.load(str(ck), "cpu"), HGNNScorer)
+
+
+def test_temperature_sampling_and_macro_dev():
+    import random
+
+    import numpy as np
+
+    from jarvis_m.memory.hypergraph.train import Example, epoch_order, macro_dev, sampling_probs
+
+    ex = [Example(None, None, None, np.array([1.0, 0.0]), f"a{i}", "c", dataset="big", domain="team") for i in range(90)]
+    ex += [Example(None, None, None, np.array([0.0, 1.0]), f"b{i}", "c", dataset="small", domain="personal")
+           for i in range(10)]
+    p1 = sampling_probs(ex, {}, 1.0)
+    assert p1["big"] == pytest.approx(0.9)
+    p0 = sampling_probs(ex, {}, 0.0)
+    assert p0["big"] == pytest.approx(0.5)
+    ph = sampling_probs(ex, {}, 0.5)
+    assert ph["big"] == pytest.approx(3 / 4)  # sqrt(90) : sqrt(10) = 3 : 1
+    assert sampling_probs(ex, {"small": 9.0}, 1.0)["small"] == pytest.approx(0.5)  # weights multiply sizes
+    order = epoch_order(ex, p0, random.Random(0))
+    assert len(order) == 100 and 35 < sum(e.dataset == "small" for e in order) < 65
+    m = macro_dev(ex, lambda e: np.array([1.0, 0.0]), 1)  # right on every "big" one, wrong on every "small" one
+    assert m["mrr"] == pytest.approx(0.75) and m["domains"]["team"]["mrr"] == 1.0  # not 0.95 (pooled)

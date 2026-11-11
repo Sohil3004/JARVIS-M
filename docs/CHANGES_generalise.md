@@ -399,3 +399,150 @@ StateBench has no personal statements and all its channels are group chats.
 * The default audience for an unlisted channel counts every speaker who wrote there,
   including in messages the asker cannot read (only the count and ids of speakers, never
   text).
+
+## Phase E: training data diversity
+
+### What changed
+
+* **StateBench v2** (`data/stress_v2.py`; `make-stress --domain team|assistant|personal|enterprise|mix`).
+  v1 (`stress.py`) is unchanged, so v1 files regenerate byte-identically.
+  * Slot names, deadlines, tasks, systems, personal subjects and suggestion topics are split
+    60 / 20 / 20 into train / dev / test pools, on top of the phrasing families.
+  * Updates by ellipsis: a message brings the slot up, the update does not name it ("too
+    expensive, let's move it to Render"). Measured share of update messages that do not
+    contain the slot name: team 60% (train) / 62% (test), assistant 100% / 81%, personal
+    92% / 66%, enterprise 60% / 57%.
+  * Per-person slots with `speaker:` holders (home, diet, coffee order, car, job, ...) and
+    conflicting values across people (labelled `unrelated`).
+  * Assistant domain: suggestions accepted explicitly ("sounds good"), implicitly ("booked
+    X") or after a rejection, user corrections, and the user's own facts with corrections.
+  * Enterprise domain: a per-conversation channel directory and principals
+    (`annotations["access"][conversation_id]`, read with
+    `access.conversation_directory`), a confidential update (in #leadership or with
+    `[CONFIDENTIAL]` + `acl_level: L2`) to a slot with a public value, viewer-relative
+    questions (`viewer_relative`: the same question has a different gold answer for a
+    cleared and an uncleared asker), audience questions (`audience`: answered into #eng or
+    for a named colleague), an exec-only compartmented fact, and 10% of messages swapped out
+    of time order in the message list.
+  * `--background locomo|longmemeval` splices the slot threads into real turns (300–3000
+    messages per conversation, `--background-len`); questions are only about the inserted
+    slots; in the personal domain the background speakers are renamed to the chat's people.
+  * `--paraphrase <yaml with chat:>` rewrites generated messages with a local model; a
+    rewrite that drops a value is discarded; cached next to the output.
+  * Labels and `stale_evidence_ids` as in v1, plus `annotations["stats"]` and
+    `annotations["protect"]` (the values each message states).
+* **Training** (`train-hgnn`): per-dataset `weight:` and temperature sampling
+  (`train.sampling_temperature`, default 0.5; P(dataset) ∝ (weight × size)^T); dev metrics
+  per domain and early stopping on their unweighted mean. `configs/train/hgnn_v2_mix.yaml`,
+  LODO configs in `configs/train/lodo/` (from `make-lodo ... --eval-config
+  configs/eval/rank_v2.yaml`), `configs/eval/rank_v2.yaml` (all four domains),
+  `configs/eval/supersession_v2.yaml`, `configs/eval/rank_external.yaml`.
+* **Loaders** for EverMemBench-Dynamic, ConvoMem and SocialMemBench, `fetch` for all three,
+  `docs/DATASETS.md` with licences and what the releases contain. GroupMemBench has no
+  per-question evidence trace (checked in all 715 questions), so it stays QA-only.
+* The runner and `build_examples` load each conversation's own directory
+  (`conversation_directory`), so datasets whose conversations have different people work.
+
+### Tests added
+
+`tests/test_stress_v2.py` (9): disjoint vocabularies, labels and evidence ids, the ellipsis
+share in every domain, determinism, personal holders and conflicts, assistant suggestion
+kinds, enterprise gold answers checked under access control (a viewer can read their gold
+evidence; an uncleared viewer or audience cannot read the hidden value), out-of-order lists,
+background splicing, paraphrase (values kept, bad rewrites dropped, cache), the CLI, and
+first-person-singular templates. `tests/test_loaders_real.py` (4) on excerpts of the real
+releases (`tests/fixtures/real_samples/`). `tests/test_stress_and_hgnn.py`: temperature
+sampling and the domain macro.
+
+### Data regenerated (not committed)
+
+`data/stress/statebench_{train,dev,test}.json` with the original sizes and seed (300 / 60 /
+300, seed 0), now with `stale_evidence_ids` and supersession labels; StateBench v2 for every
+domain at 300 / 60 / 300; and the two background test sets (100 conversations each, about
+1,600 messages per conversation). Commands: `docs/RUNBOOK_generalise.md`, step 0. Every set
+generates in seconds; CPU rank-eval with the hashing embedder takes under 10 seconds per
+plain set and about 4 minutes per background set.
+
+### Decisions
+
+* **v2 is a new module** rather than flags on v1, so v1 stays byte-identical for
+  comparisons with earlier results.
+* **Per-conversation directories.** Names repeat across generated conversations with
+  different clearances, so one dataset-wide principal list cannot work.
+* **Enterprise channels.** Every enterprise conversation uses `general` (open), `eng` (the
+  whole team, level intern) and `leadership` (the managers, level manager, compartment
+  `leadership`); the team-domain threads are moved into `eng`.
+* **Viewer-relative gold.** An uncleared asker's gold is the public value and the hidden
+  value is a `stale_answer` (mentioning it is an error); a cleared asker's gold is the
+  confidential value.
+* **Questions in enterprise conversations** carry `meta.channel`: `dm-<asker>` for private
+  questions (the asker alone), `eng` for answers into the channel (its members' meet).
+* **LoCoMo and the background sets are evaluation only.** The personal domain is trained on
+  synthetic data and tested on real chats; background turns come from the evaluation sets.
+* **ConvoMem test fixture is synthetic** (CC BY-NC data stays out of the MIT repository).
+* **EverMemBench evidence** is the release's context slice (`R`), used as given.
+* **`idf_scope: view`** in `rank_v2.yaml` and `hgnn_v2_mix.yaml` (they include enterprise
+  data); measured identical to `global` on LoCoMo and LongMemEval (fixed MRR 0.273 and
+  0.561 both ways).
+
+### Measurements (CPU: hashing embedder, heuristic extractor)
+
+**B4: windowed linking evidence** (`link_df_window: 500`) against the old global document
+frequency (`link_df_window: 1000000000`, the same `max_link_df` ratio), supersession-eval:
+
+| Set | P window / global | R window / global | chained pairs window / global |
+| --- | --- | --- | --- |
+| SB2 personal test | – / – (1 chain) | 0.000 / 0.000 | 1 / 1 |
+| SB2 personal test + LoCoMo background | – / – | 0.000 / 0.000 | 8,295 / 8,694 |
+| SB2 assistant test + LongMemEval background | – / – | 0.000 / 0.000 | 7,289 / 7,716 |
+| every other v1 / v2 set | identical | identical | identical |
+
+The window changes no labelled pair. In the long background chats it removes 4.6–5.5% of
+the (unlabelled) chains, all between background turns. On plain StateBench conversations
+(about 30 messages) the window never fills, so the two are the same by construction. The
+heuristic finds no labelled personal pair to begin with, so B4's effect on personal recall
+cannot be measured until an LLM extraction cache exists; rerun the same two commands then.
+
+**Supersession, heuristic extractor: the pre-Qwen baseline.**
+
+| Set | precision | recall | F1 | false-supersession rate |
+| --- | --- | --- | --- | --- |
+| StateBench v1 test | 0.869 | 0.073 | 0.135 | 0.002 |
+| SB2 team test | 1.000 | 0.050 | 0.096 | 0.000 |
+| SB2 assistant test | – | 0.000 | – | 0.000 |
+| SB2 personal test | – | 0.000 | – | 0.000 |
+| SB2 enterprise test | 1.000 | 0.035 | 0.067 | 0.000 |
+| SB2 personal test + LoCoMo bg | – | 0.000 | – | 0.000 |
+| SB2 assistant test + LongMemEval bg | – | 0.000 | – | 0.000 |
+| (dev, seen phrasing) SB2 team / personal / enterprise | 0.966 / 1.000 / 0.926 | 0.113 / 0.019 / 0.127 | | |
+
+The heuristic covers v2's held-out phrasing, ellipsis and personal subjects almost not at
+all: the gap the LLM extractor has to close.
+
+**Ranking (MRR), `configs/eval/rank_v2.yaml` with the hashing embedder:**
+
+| Domain | seeds | fixed |
+| --- | --- | --- |
+| team (v1 test + SB2 team) | 0.688 | 0.724 |
+| assistant (SB2 + background + LongMemEval-S test) | 0.231 | 0.230 |
+| personal (SB2 + background + LoCoMo) | 0.342 | 0.336 |
+| enterprise (SB2) | 0.657 | 0.672 |
+| macro | 0.480 | 0.490 |
+
+SB2 per set (fixed): team 0.668, assistant 0.225, assistant + background 0.077, personal
+0.381, personal + background 0.405, enterprise 0.672. v2 is harder than v1 (team 0.668 vs
+0.787). Enterprise `leak_rate` is 0.000 with enforcement; in measure-only mode 45.4%
+(seeds) and 47.1% (fixed) of questions would have a restricted message in their top 10,
+and MRR drops to 0.608 / 0.625 because hidden versions compete.
+
+A 2-epoch CPU smoke run of `hgnn_v2_mix` (60 questions per set, hashing embedder) trained
+and evaluated end to end; its numbers are a pipeline check only (it gains on SB2 and loses
+on LoCoMo and LongMemEval, the expected sign of a tiny template-only training run).
+
+### Known limitations
+
+* Paraphrasing needs a GPU model and was not run; the v2 numbers above are on templates.
+* The heuristic extractor scores 0 recall on v2 assistant and personal; the LLM extractor
+  has not been run.
+* EverMemBench, ConvoMem and SocialMemBench are loaded and tested on excerpts; they are not
+  in the training mix (licence and size decisions for the user, see the final notes).

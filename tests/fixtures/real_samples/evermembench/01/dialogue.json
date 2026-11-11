@@ -1,0 +1,266 @@
+[
+ {
+  "topic_id": "01",
+  "date": "2025-03-12",
+  "dialogues": {
+   "Group 1": null,
+   "Group 2": [
+    {
+     "speaker": "Yunjia Jiang",
+     "time": "2025-03-12 10:05:30",
+     "dialogue": "Good morning everyone, I'd like to sync up on the new task starting today. I will begin configuring our project's Jira workflow, including task types, status transitions, and Kanban board. The initial plan is to set up these core statuses: 'To Do', 'In Progress', 'In Review', 'Done'. We can refine them later based on the specific development and testing processes. @Jianguo Huang @Guohua Yin Please feel free to raise any special requirements for the process at any time.",
+     "message_index": 5
+    },
+    {
+     "speaker": "Yunjia Jiang",
+     "time": "2025-03-12 10:06:15",
+     "dialogue": "Additionally, I will simultaneously create a knowledge base space for the project in Confluence, which will be used for archiving and managing all subsequent project documents. Once created, I will share the link in the group.",
+     "message_index": 6
+    },
+    {
+     "speaker": "Jianguo Huang",
+     "time": "2025-03-12 10:10:00",
+     "dialogue": "@Yunjia Jiang Okay, the initial setup of the Jira workflow is fine and meets standard practices. We can add a 'Blocked' status later to facilitate issue tracking. Thanks for your hard work.",
+     "message_index": 7
+    },
+    {
+     "speaker": "Li Xiao",
+     "time": "2025-03-12 14:22:30",
+     "dialogue": "Okay, received everything, thank you Boss Li! Now all the information is complete. I can finish the first draft of the budget tracking sheet today and send it out for everyone's review tomorrow morning.",
+     "message_index": 13
+    },
+    {
+     "speaker": "Yunjia Jiang",
+     "time": "2025-03-12 16:30:00",
+     "dialogue": "@all Our project's knowledge base space in Confluence is progressing smoothly and is now accessible. Link: https://sd.confluence.com/display/EMDS/Home. I will gradually organize important documents like Guohua Yin's requirements document into it. Additionally, the initial configuration of the Jira workflow is also progressing well, and tomorrow we will start inputting Jianguo Huang's WBS.",
+     "message_index": 14
+    }
+   ],
+   "Group 3": null
+  }
+ },
+ {
+  "topic_id": "01",
+  "date": "2025-03-13",
+  "dialogues": {
+   "Group 1": null,
+   "Group 2": [
+    {
+     "speaker": "Yunjia Jiang",
+     "time": "2025-03-13 09:15:20",
+     "dialogue": "Good morning everyone, here's an update on my progress. The project's Confluence knowledge base space is currently being created and is expected to be ready later today. I will post the link in the group announcement shortly. All future project documents will be archived there. @Jianguo Huang Boss Huang, regarding the Jira workflow you suggested yesterday, I am configuring the 'Blocked' status. The current plan is 'To Do' -> 'In Progress' <-> 'Blocked' -> 'In Review' -> 'Done'. Does that work for you?",
+     "message_index": 1
+    },
+    {
+     "speaker": "Jianguo Huang",
+     "time": "2025-03-13 09:22:45",
+     "dialogue": "@Yunjia Jiang Received, very efficient! The Jira workflow solution looks very comprehensive, let's configure it according to this. Looking forward to the Confluence space being set up. My WBS creation work can finally be fully rolled out. Yesterday, I received the final version of the requirements document from Guohua Yin and the user journey map from Luhao Zhao, so all inputs are in place. Today, I will first break down the first level of tasks.",
+     "message_index": 2
+    },
+    {
+     "speaker": "Li Xiao",
+     "time": "2025-03-13 09:35:10",
+     "dialogue": "Good morning everyone. Just a reminder, the project budget tracking sheet is due today. Yesterday, I received the cloud resource estimates from Gaolujian and hardware cost information from Mingzhi Li, thank you very much! I am now integrating all the data for the final calculations. Boss Huang, after the WBS is broken down, could you provide a preliminary estimate of human resource input? This would allow my budget to more accurately cover all project phases.",
+     "message_index": 3
+    }
+   ],
+   "Group 3": null
+  }
+ },
+ {
+  "topic_id": "01",
+  "date": "2025-03-14",
+  "dialogues": {
+   "Group 1": null,
+   "Group 2": [
+    {
+     "speaker": "Jianguo Huang",
+     "time": "2025-03-14 09:10:15",
+     "dialogue": "Good morning everyone. Today is Friday, and also the deadline for several key tasks. I will finalize the high-level Work Breakdown Structure (WBS) on my end, and in the afternoon, I will synchronize the estimated human resource requirements based on the breakdown with @Li Xiao to complete the budget sheet.",
+     "message_index": 1
+    },
+    {
+     "speaker": "Yunjia Jiang",
+     "time": "2025-03-14 09:12:45",
+     "dialogue": "Good morning, Boss Huang! Same here, I'll be finishing up the Jira workflow and Confluence knowledge base today. The Jira workflow has been configured according to the 'To Do' -> 'In Progress' <-> 'Blocked' -> 'In Review' -> 'Done' scheme that Boss Huang confirmed yesterday, and I'm currently performing the final permission checks.",
+     "message_index": 2
+    },
+    {
+     "speaker": "Guohua Yin",
+     "time": "2025-03-14 09:15:20",
+     "dialogue": "Good morning, everyone. The project's infrastructure development is progressing very quickly. I'm officially finalizing the Product Requirements Document (PRD) starting today and pushing forward with the approval process. I will first integrate all the feedback collected recently and plan to send out the draft for review to all key stakeholders next Monday.",
+     "message_index": 3
+    },
+    {
+     "speaker": "Mingzhi Li",
+     "time": "2025-03-14 09:18:00",
+     "dialogue": "@Jianguo Huang @Yunjia Jiang You've worked hard. The improvement of project management tools is crucial for the smooth progress of future R&D work.",
+     "message_index": 4
+    },
+    {
+     "speaker": "Yunjia Jiang",
+     "time": "2025-03-14 15:30:00",
+     "dialogue": "@all Here's an update on the final progress: 1. The Confluence knowledge base space has been created and basic configuration is complete. The link has been updated in the group announcement, and all future project documents will be archived there. 2. The Jira project workflow has been configured and officially enabled. Both tasks are now complete.",
+     "message_index": 5
+    },
+    {
+     "speaker": "Jianguo Huang",
+     "time": "2025-03-14 16:45:50",
+     "dialogue": "Great, very efficient @Yunjia Jiang! I'd like to provide an update as well. The high-level Work Breakdown Structure (WBS) V1.0 has been output and uploaded to the newly created Confluence space. The related human resource estimates have also been emailed to @Li Xiao. This task has been completed today.",
+     "message_index": 6
+    },
+    {
+     "speaker": "Weihua Zhang",
+     "time": "2025-03-14 17:05:10",
+     "dialogue": "Today, the project's infrastructure construction reached several important milestones. WBS, Jira, and Confluence are all in place, laying a solid foundation for the project to enter the execution phase. Great job, everyone!",
+     "message_index": 7
+    }
+   ],
+   "Group 3": null
+  }
+ },
+ {
+  "topic_id": "01",
+  "date": "2025-11-06",
+  "dialogues": {
+   "Group 1": [
+    {
+     "speaker": "Mei Zheng",
+     "time": "2025-11-06 09:25:30",
+     "dialogue": "Morning. Regarding database query performance, I analyzed the execution plans for the two slow SQL queries identified yesterday morning. One was due to a missing index on a JOIN condition field, and the other was a subquery that caused multiple unnecessary data scans. I'm about to discuss the indexing plan with @Hong Gong and try to rewrite the second SQL query. This approach aligns perfectly with what Boss Zhou emphasized earlier: 'starting from business pain points.'",
+     "message_index": 2
+    },
+    {
+     "speaker": "Ziyang Zou",
+     "time": "2025-11-06 09:30:00",
+     "dialogue": "Good morning everyone, I'm starting to write our platform's Deployment Checklist today. I will cover environment preparation, configuration verification, deployment steps, rollback plan, and post-deployment verification. Once the first draft is complete, I will send it out for everyone to review, especially the operations and testing colleagues.",
+     "message_index": 3
+    },
+    {
+     "speaker": "Zixuan Qin",
+     "time": "2025-11-06 09:33:45",
+     "dialogue": "Hello everyone, I'm also starting a new analysis task here. I plan to first pull user operation logs from the backend for the past month, focusing on analyzing the usage frequency and breakpoints of the two core processes: data entry and report generation, to see if there are any areas for optimization. Later, I'll create an initial visualization dashboard using Tableau.",
+     "message_index": 4
+    }
+   ],
+   "Group 2": null,
+   "Group 3": null
+  }
+ },
+ {
+  "topic_id": "01",
+  "date": "2025-11-07",
+  "dialogues": {
+   "Group 1": [
+    {
+     "speaker": "Ruiqing Jiang",
+     "time": "2025-11-07 09:45:30",
+     "dialogue": "Hi all, there's also new progress on frontend performance optimization. Yesterday, after separating the chart library and map component for on-demand loading, the initial JS bundle size of the cockpit page was reduced by about 450KB, and Lighthouse's Time to Interactive (TTI) metric improved by nearly 30%. The results are good! Next, I plan to research how to use prefetch/preload technology to pre-load page resources that users are most likely to visit next. \ud83d\ude02",
+     "message_index": 2
+    },
+    {
+     "speaker": "Ziyang Zou",
+     "time": "2025-11-07 09:50:00",
+     "dialogue": "I have completed the first draft of the Deployment Checklist, and the document link has been shared in the group. The checklist covers the complete process from environment preparation, configuration verification, deployment steps, to rollback plans and verification items. @Jing Lv @Xinmeng Tian, please help review it, especially the operations and testing colleagues, to see if there are any missing key points.",
+     "message_index": 3
+    },
+    {
+     "speaker": "Zixuan Qin",
+     "time": "2025-11-07 09:55:25",
+     "dialogue": "Good morning everyone, regarding user behavior data analysis, I have a preliminary finding. Following Boss Zhou's suggestion, I specifically focused on financial compliance-related reports. I found that the 'Quarterly Compliance Summary' report built into our system has a very low usage rate, while the 'Raw Emission Data Export' function is used very frequently. This may indicate that the preset report format does not fully meet the needs of the finance colleagues, and they prefer to process data themselves using Excel. I am currently working on a Tableau dashboard to visualize this phenomenon more intuitively.",
+     "message_index": 4
+    },
+    {
+     "speaker": "Lizhen Zhou",
+     "time": "2025-11-07 10:15:00",
+     "dialogue": "Everyone is making good progress. @Ruiqing Jiang, your optimization results are significant, keep it up. @Mei Zheng, waiting for your test results, looking forward to good news. @Zixuan Qin, this discovery is very valuable! This is exactly the business insight we hoped to find through data analysis. Please analyze it in depth and see if you can summarize which dimensions and indicators they focus on most when creating their own reports. This will be an important input for our next iteration to optimize the reporting function.",
+     "message_index": 5
+    },
+    {
+     "speaker": "Jing Lv",
+     "time": "2025-11-07 11:05:10",
+     "dialogue": "@Ziyang Zou Received, the checklist is very detailed. I noticed that the rollback plan mentions database rollback, which is a relatively high-risk operation. I suggest we clarify the trigger conditions and specific rollback scripts, and it would be best to conduct a drill beforehand.",
+     "message_index": 6
+    },
+    {
+     "speaker": "Ziyang Zou",
+     "time": "2025-11-07 11:10:45",
+     "dialogue": "@Jing Lv's point is valid; database rollback indeed requires extreme caution. I will elaborate on this by adding a \"data backup verification\" step and emphasizing that database rollback should only be considered when data structure is corrupted or core data is contaminated. Thanks a lot!",
+     "message_index": 7
+    },
+    {
+     "speaker": "Xinjie Li",
+     "time": "2025-11-07 11:40:47",
+     "dialogue": "Hello everyone, I have formally defined a special query processing logic that we discussed before as a system policy and entered it into the policy dictionary. The policy ID is `DR-COMPAT-01`.",
+     "message_index": 8
+    }
+   ],
+   "Group 2": null,
+   "Group 3": null
+  }
+ },
+ {
+  "topic_id": "01",
+  "date": "2025-11-10",
+  "dialogues": {
+   "Group 1": [
+    {
+     "speaker": "Mei Zheng",
+     "time": "2025-11-10 09:35:40",
+     "dialogue": "Morning all. Just an update on the database performance optimization. The relevant indexes and SQL rewrites have been deployed to the Staging environment by the backend team over the weekend. I will conduct the final regression tests today to confirm the performance under production-level data volume. If there are no issues, the task will be officially closed today.",
+     "message_index": 2
+    },
+    {
+     "speaker": "Ziyang Zou",
+     "time": "2025-11-10 09:40:00",
+     "dialogue": "Good morning everyone, regarding the deployment checklist, I have already added detailed information on the trigger conditions and verification steps for database rollback, based on the suggestions made by @Jing Lv last Friday. I will read through it one more time and release the final version this morning.",
+     "message_index": 3
+    },
+    {
+     "speaker": "Minghua Wei",
+     "time": "2025-11-10 09:43:30",
+     "dialogue": "Hello everyone, today I'm starting this round of regression testing for our platform. The testing scope covers all bugs fixed in the previous iteration. I will strictly follow the test cases to ensure all issues are correctly closed.",
+     "message_index": 4
+    },
+    {
+     "speaker": "Zixuan Qin",
+     "time": "2025-11-10 10:05:00",
+     "dialogue": "Regarding user behavior analysis, I have an important update. Following Boss Zhou's instructions last week, I conducted in-depth interviews with two colleagues from the finance department. They mentioned that the reason they rarely use the system's preset 'Quarterly Compliance Summary' report is because they need more flexible pivot and cross-analysis capabilities, especially around the 'emission source' and 'cost center' dimensions. They prefer to export the raw data and process it themselves in Excel. This insight is very valuable for us to optimize our reporting functions.",
+     "message_index": 5
+    },
+    {
+     "speaker": "Lizhen Zhou",
+     "time": "2025-11-10 10:20:15",
+     "dialogue": "Everyone is making good progress. @Zixuan Qin This is the deep insight we need, excellent! This discovery directly points out the direction for optimizing our report function. Please take this as an important input, and we will prioritize it in our next iteration. @Ruiqing Jiang @Mei Zheng @Ziyang Zou I look forward to you completing your tasks today and clearing obstacles for the project launch.",
+     "message_index": 6
+    },
+    {
+     "speaker": "Ziyang Zou",
+     "time": "2025-11-10 11:30:00",
+     "dialogue": "@All members The final version of \"Carbon Emission Accounting and Asset Management Platform - Deployment Checklist\" has been released to Confluence. This task has been completed. Please check it out. https://sd.confluence.net/pages/viewpage.action?pageId=987654321/2025/11/Carbon+Platform+Deployment+List",
+     "message_index": 7
+    },
+    {
+     "speaker": "Ruiqing Jiang",
+     "time": "2025-11-10 16:50:00",
+     "dialogue": "Hi all, the task of front-end page loading performance analysis and optimization has been fully completed. All optimization items, including code splitting, resource compression, image optimization, and preloading, have been launched. The Lighthouse performance score for the cockpit page is stable at 92 points. The final report has been uploaded, and the task is closed! \ud83c\udf89",
+     "message_index": 8
+    },
+    {
+     "speaker": "Mei Zheng",
+     "time": "2025-11-10 17:15:30",
+     "dialogue": "The database query performance analysis and optimization task has been officially completed. The final verification in the Staging environment shows that the loading time of the group summary report has stabilized at around 4 seconds from over 30 seconds, which meets expectations. Thanks to @Hong Gong and the team for their support, the task has been closed in Jira.",
+     "message_index": 9
+    },
+    {
+     "speaker": "Lizhen Zhou",
+     "time": "2025-11-10 17:30:00",
+     "dialogue": "Awesome! @Ruiqing Jiang @Mei Zheng @Ziyang Zou, thank you three for completing the task on time and with high quality. These performance and process optimizations are important cornerstones for ensuring the stable launch of our platform. Great job, everyone!",
+     "message_index": 10
+    }
+   ],
+   "Group 2": null,
+   "Group 3": null
+  }
+ }
+]

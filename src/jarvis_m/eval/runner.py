@@ -15,6 +15,7 @@ from typing import Any, Dict, List
 import numpy as np
 import yaml
 
+from ..access import conversation_directory
 from ..data.loaders import load_dataset
 from ..memory import build_memory
 from .metrics import evidence_recall, is_abstention, mentions_any
@@ -64,7 +65,7 @@ def run(cfg: Dict[str, Any], arm: str = "", progress: bool = True) -> Path:
                 continue
             mem = build_memory(cfg["memory"], cfg.get("tokenizer"))
             mem.reset()
-            mem.configure_access(ds.annotations)  # channel / principal directory, if the dataset has one
+            mem.configure_access(conversation_directory(ds.annotations, cid))  # channels / principals, if any
             t0 = time.perf_counter()
             mem.ingest(conv.messages)
             if hasattr(mem, "prefetch_queries"):

@@ -1,0 +1,28 @@
+# HGNN v2: trained on all four domains with temperature sampling, early stopping on the
+# macro-average over the four domains of a mixed dev set. Data: docs/RUNBOOK_generalise.md, step 0.
+#   jarvis-eval train-hgnn configs/train/hgnn_v2_mix.yaml --set train.seed=0 --set output=models/hgnn/hgnn_v2_mix_s0.pt
+#   (seeds 1 and 2 the same way)
+# Leave-one-domain-out:
+#   jarvis-eval make-lodo configs/train/hgnn_v2_mix.yaml --out configs/train/lodo/ --eval-config configs/eval/rank_v2.yaml
+# LoCoMo and the background-spliced sets are evaluation only (rank_v2.yaml): the personal domain is
+# trained on synthetic data and tested on real chats.
+base: ../hypergraph_base.yaml
+name: hgnn_v2_mix
+output: models/hgnn/hgnn_v2_mix.pt
+memory: {idf_scope: view}
+train_data:
+  # `weight` multiplies a dataset's size before temperature sampling: P(d) ~ (weight * n_d) ** T
+  - {label: SB1 train, domain: team, name: jarvis, path: data/stress/statebench_train.json, weight: 0.5}
+  - {label: SB2 team train, domain: team, name: jarvis, path: data/stress/statebench_v2_team_train.json}
+  - {label: SB2 assistant train, domain: assistant, name: jarvis, path: data/stress/statebench_v2_assistant_train.json}
+  - {label: LongMemEval-S train, domain: assistant, name: longmemeval, variant: s_cleaned, split: train}
+  - {label: SB2 personal train, domain: personal, name: jarvis, path: data/stress/statebench_v2_personal_train.json}
+  - {label: SB2 enterprise train, domain: enterprise, name: jarvis, path: data/stress/statebench_v2_enterprise_train.json}
+dev_data:  # mixed dev set: early stopping on the macro-average over these domains
+  - {label: SB2 team dev, domain: team, name: jarvis, path: data/stress/statebench_v2_team_dev.json}
+  - {label: SB2 assistant dev, domain: assistant, name: jarvis, path: data/stress/statebench_v2_assistant_dev.json}
+  - {label: SB2 personal dev, domain: personal, name: jarvis, path: data/stress/statebench_v2_personal_dev.json}
+  - {label: SB2 enterprise dev, domain: enterprise, name: jarvis, path: data/stress/statebench_v2_enterprise_dev.json}
+model: {hidden: 128, layers: 2, gating: true, dropout: 0.1}
+train: {epochs: 15, lr: 0.001, weight_decay: 0.0001, device: auto, eval_k: 10, patience: 4, seed: 0,
+        sampling_temperature: 0.5}

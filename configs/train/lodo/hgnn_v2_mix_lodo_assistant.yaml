@@ -1,0 +1,67 @@
+memory:
+  type: hypergraph
+  embedder:
+    type: st
+    model_name: Qwen/Qwen3-Embedding-0.6B
+    batch_size: 16
+    max_seq_length: 1024
+  extractor:
+    type: heuristic
+  n_seeds: 30
+  max_candidates: 300
+  max_edge_size: 60
+  version_keep_k: 5
+  link_df_window: 500
+  scorer:
+    type: fixed
+  idf_scope: view
+name: hgnn_v2_mix_lodo_assistant
+output: models/hgnn/hgnn_v2_mix_lodo_assistant.pt
+train_data:
+- label: SB1 train
+  domain: team
+  name: jarvis
+  path: data/stress/statebench_train.json
+  weight: 0.5
+- label: SB2 team train
+  domain: team
+  name: jarvis
+  path: data/stress/statebench_v2_team_train.json
+- label: SB2 personal train
+  domain: personal
+  name: jarvis
+  path: data/stress/statebench_v2_personal_train.json
+- label: SB2 enterprise train
+  domain: enterprise
+  name: jarvis
+  path: data/stress/statebench_v2_enterprise_train.json
+dev_data:
+- label: SB2 team dev
+  domain: team
+  name: jarvis
+  path: data/stress/statebench_v2_team_dev.json
+- label: SB2 personal dev
+  domain: personal
+  name: jarvis
+  path: data/stress/statebench_v2_personal_dev.json
+- label: SB2 enterprise dev
+  domain: enterprise
+  name: jarvis
+  path: data/stress/statebench_v2_enterprise_dev.json
+model:
+  hidden: 128
+  layers: 2
+  gating: true
+  dropout: 0.1
+train:
+  epochs: 15
+  lr: 0.001
+  weight_decay: 0.0001
+  device: auto
+  eval_k: 10
+  patience: 4
+  seed: 0
+  sampling_temperature: 0.5
+lodo:
+  held_out_domain: assistant
+  source: configs/train/hgnn_v2_mix.yaml

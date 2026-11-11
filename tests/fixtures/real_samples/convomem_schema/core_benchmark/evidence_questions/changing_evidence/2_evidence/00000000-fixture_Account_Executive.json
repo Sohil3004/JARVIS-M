@@ -1,0 +1,68 @@
+{
+ "evidence_items": [
+  {
+   "question": "Which day is my follow-up call with Northwind now?",
+   "answer": "Thursday; it was moved from Tuesday.",
+   "message_evidences": [
+    {
+     "speaker": "User",
+     "text": "I set a follow-up call with Northwind for Tuesday."
+    },
+    {
+     "speaker": "User",
+     "text": "Northwind asked to move the call to Thursday"
+    }
+   ],
+   "conversations": [
+    {
+     "messages": [
+      {
+       "speaker": "User",
+       "text": "Morning! Can you summarise yesterday's pipeline review?"
+      },
+      {
+       "speaker": "Assistant",
+       "text": "Sure: three deals moved to negotiation and one was lost."
+      },
+      {
+       "speaker": "User",
+       "text": "I set a follow-up call with Northwind for Tuesday."
+      },
+      {
+       "speaker": "Assistant",
+       "text": "Noted, Tuesday with Northwind."
+      }
+     ],
+     "id": "c-1",
+     "containsEvidence": "True",
+     "model_name": "fixture"
+    },
+    {
+     "messages": [
+      {
+       "speaker": "User",
+       "text": "Quick update: Northwind asked to move the call to Thursday, same time."
+      },
+      {
+       "speaker": "Assistant",
+       "text": "Got it, Thursday it is."
+      },
+      {
+       "speaker": "User",
+       "text": "Also remind me to send the pricing sheet."
+      }
+     ],
+     "id": "c-2",
+     "containsEvidence": "True",
+     "model_name": "fixture"
+    }
+   ],
+   "category": "Professional Life",
+   "scenario_description": "fixture",
+   "personId": "00000000-fixture",
+   "use_case_model_name": "fixture",
+   "core_model_name": "fixture"
+  }
+ ],
+ "checkpoint": "fixture"
+}

@@ -3,8 +3,9 @@
     jarvis-eval run configs/exp/smoke_toy.yaml [--set memory.type=dense ...] [--arm NAME]
     jarvis-eval judge runs/<name> --judge configs/models/judge_qwen3_8b_4bit_hf.yaml [--force]
     jarvis-eval report runs/<name> [--baseline bm25] [--out table.md]
-    jarvis-eval data fetch groupmembench|locomo|longmemeval|evermembench
+    jarvis-eval data fetch groupmembench|locomo|longmemeval|evermembench|convomem|socialmembench
     jarvis-eval data make-stress --split train --n 300 [--seed 0] [--out data/stress/statebench_train.json]
+    jarvis-eval data make-stress --domain personal --split train --n 300 [--background locomo]   # StateBench v2
     jarvis-eval extract configs/exp/<exp>.yaml --extractor configs/models/extractor_qwen3_4b_4bit_hf.yaml
     jarvis-eval train-hgnn configs/train/hgnn_statebench_lme.yaml
     jarvis-eval rank-eval configs/eval/rank_real.yaml [--arm hgnn_v2=models/hgnn/hgnn_v2_s{0,1,2}.pt] [--k 5 10]
@@ -57,6 +58,15 @@ def main(argv=None) -> int:
     ms.add_argument("--seed", type=int, default=0)
     ms.add_argument("--noise", type=float, default=1.0)
     ms.add_argument("--out", default=None)
+    ms.add_argument("--domain", default=None, choices=["team", "assistant", "personal", "enterprise", "mix"],
+                    help="StateBench v2 in this domain (without --domain: v1)")
+    ms.add_argument("--background", default="none", choices=["none", "locomo", "longmemeval"],
+                    help="v2: splice the slot threads into real conversation turns")
+    ms.add_argument("--background-path", default=None, help="background dataset file (default: the loader's)")
+    ms.add_argument("--background-len", type=int, nargs=2, default=[300, 3000], metavar=("MIN", "MAX"),
+                    help="v2 with background: messages per conversation")
+    ms.add_argument("--paraphrase", default=None, metavar="YAML",
+                    help="v2: rewrite generated messages with the chat model in this file's `chat:` block (GPU, cached)")
     ms.add_argument("--labels-dir", default=None,
                     help="where the supersession labels go (default data/labels/supersession, or "
                          "<out dir>/labels/supersession for an --out outside data/stress)")
@@ -198,8 +208,35 @@ def main(argv=None) -> int:
         if a.dcmd == "make-stress":
             from .data.stress import generate, save, save_supersession_labels
 
-            out = Path(a.out or f"data/stress/statebench_{a.split}.json")
-            ds = generate(a.n, seed=a.seed, split=a.split, noise=a.noise)
+            if a.domain is None:
+                if a.background != "none" or a.paraphrase:
+                    raise SystemExit("--background and --paraphrase need --domain (StateBench v2)")
+                out = Path(a.out or f"data/stress/statebench_{a.split}.json")
+                ds = generate(a.n, seed=a.seed, split=a.split, noise=a.noise)
+            else:
+                from .data.stress_v2 import generate_v2, load_background, paraphrase
+
+                bg = None if a.background == "none" else load_background(a.background, a.background_path)
+                suffix = "" if a.background == "none" else f"_bg{a.background}"
+                out = Path(a.out or f"data/stress/statebench_v2_{a.domain}_{a.split}{suffix}.json")
+                ds = generate_v2(a.n, seed=a.seed, split=a.split, domain=a.domain, background=bg,
+                                 background_len=tuple(a.background_len))
+                if suffix:
+                    ds.name += suffix
+                    for row in ds.annotations["supersession"]:
+                        row["dataset"] = ds.name
+                if a.paraphrase:
+                    from .config import load_config
+                    from .llm import build_chat
+
+                    pcfg = load_config(a.paraphrase)
+                    if "chat" not in pcfg:
+                        raise SystemExit(f"{a.paraphrase} has no top-level `chat:` block")
+                    paraphrase(ds, build_chat(pcfg["chat"]), out.with_suffix(".paraphrase_cache.jsonl"))
+                    ds.name += "_para"
+                    out = out.with_name(out.stem + "_para.json")
+                    for row in ds.annotations["supersession"]:
+                        row["dataset"] = ds.name
             print(f"[stress] {ds.summary()} -> {save(ds, out)}")
             in_repo = out.parent.as_posix().endswith("data/stress")
             labels_dir = a.labels_dir or ("data/labels/supersession" if in_repo

@@ -1,0 +1,55 @@
+[
+ {
+  "topic_id": "01",
+  "id": "F_SH_Top01_047",
+  "Q": "When configuring Jira for the Energy Consumption Monitoring and Energy Saving Diagnosis System, what was the final agreed-upon workflow status sequence for the team?",
+  "A": "The final Jira workflow status sequence is: 'To Do' -> 'In Progress' <-> 'Blocked' -> 'In Review' -> 'Done'.",
+  "R": [
+   {
+    "date": "2025-03-12",
+    "group": "Group 2",
+    "message_index": "6, 14"
+   },
+   {
+    "date": "2025-03-13",
+    "group": "Group 2",
+    "message_index": "1-2"
+   },
+   {
+    "date": "2025-03-14",
+    "group": "Group 2",
+    "message_index": "2, 5, 7"
+   }
+  ],
+  "options": null
+ },
+ {
+  "topic_id": "01",
+  "id": "P_Style_Top01_035",
+  "Q": "I (Ziyang Zou) need to update everyone on the completion status of the carbon emissions accounting platform deployment checklist. Please help me draft a group message.",
+  "A": "A",
+  "options": {
+   "A": "Guys, the deployment checklist for the carbon emissions accounting platform is done! \ud83c\udf89 Special thanks to Jing Lv for her sharp eye in pointing out the DB rollback risk. I've refined the rollback plan, added data backup verification, and clarified that it will only be triggered in extreme cases like data structure corruption. We're all set now! The final version has been uploaded to Confluence, so everyone can go check it out.",
+   "B": "Hey guys, the deployment checklist for our carbon emissions accounting platform is finally out! \ud83e\udd73 I'd like to give a special shout-out to Xinmeng Tian this time. Thanks to her meticulousness, she discovered that the database rollback plan was too complex and the execution risk was difficult to control. After our discussion, we agreed with her and simply removed the DB rollback part. Instead, we'll strengthen manual inspection and automatic verification of core data after deployment, which is safer and more direct. The final version is on Confluence, so feel free to check it out~",
+   "C": "Regarding the final plan for the Carbon Platform deployment checklist: Xinmeng Tian's suggestion was adopted. Considering the complexity and risks of the original database rollback plan, the technical team decided to abandon the plan after evaluation. The alternative solution is to enhance data consistency checks and manual verification after deployment. This decision has been reflected in the final version of the document on Confluence.",
+   "D": "@All members Update: The carbon platform deployment checklist has been finalized. Jing Lv's suggestion has been adopted to refine the DB rollback plan: data backup verification has been added, and it is clarified that it will only be triggered in extreme cases such as data structure corruption. The final version has been uploaded to Confluence, please check it."
+  },
+  "R": [
+   {
+    "date": "2025-11-06",
+    "group": "Group 1",
+    "message_index": "3"
+   },
+   {
+    "date": "2025-11-07",
+    "group": "Group 1",
+    "message_index": "3, 6-7"
+   },
+   {
+    "date": "2025-11-10",
+    "group": "Group 1",
+    "message_index": "3, 6-7, 10"
+   }
+  ]
+ }
+]

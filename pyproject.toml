@@ -16,7 +16,8 @@ retrieval = ["sentence-transformers>=3.0", "faiss-cpu>=1.8"]
 llm = ["torch>=2.4", "transformers>=4.51", "accelerate>=0.33", "peft>=0.12"]
 quant = ["bitsandbytes>=0.45"]
 dev = ["pytest>=8", "ruff>=0.6"]
-all = ["jarvis-m[retrieval,llm,quant,dev]"]
+data = ["pyarrow>=14"]  # SocialMemBench parquet files
+all = ["jarvis-m[retrieval,llm,quant,dev,data]"]
 
 [project.scripts]
 jarvis-eval = "jarvis_m.cli:main"

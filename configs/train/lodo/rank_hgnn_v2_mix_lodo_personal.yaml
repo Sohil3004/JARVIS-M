@@ -1,0 +1,43 @@
+memory:
+  type: hypergraph
+  embedder:
+    type: st
+    model_name: Qwen/Qwen3-Embedding-0.6B
+    batch_size: 16
+    max_seq_length: 1024
+  extractor:
+    type: heuristic
+  n_seeds: 30
+  max_candidates: 300
+  max_edge_size: 60
+  version_keep_k: 5
+  link_df_window: 500
+  scorer:
+    type: fixed
+  idf_scope: view
+k:
+- 5
+- 10
+datasets:
+- label: SB2 personal test
+  domain: personal
+  name: jarvis
+  path: data/stress/statebench_v2_personal_test.json
+- label: SB2 personal test + LoCoMo background
+  domain: personal
+  name: jarvis
+  path: data/stress/statebench_v2_personal_test_bglocomo.json
+- label: LoCoMo
+  domain: personal
+  name: locomo
+  categories:
+  - single_hop
+  - multi_hop
+  - temporal
+  - open_domain
+arms:
+  hgnn_v2_mix_lodo_personal:
+  - models/hgnn/hgnn_v2_mix_lodo_personal*.pt
+lodo:
+  held_out_domain: personal
+  source: configs/train/hgnn_v2_mix.yaml

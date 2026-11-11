@@ -1,0 +1,25 @@
+# Ranking tables over all four domains (no reader / judge). Data: docs/RUNBOOK_generalise.md, step 0.
+#   jarvis-eval rank-eval configs/eval/rank_v2.yaml --arm hgnn_v2_mix=models/hgnn/hgnn_v2_mix_s{0,1,2}.pt
+# Every entry names its domain; rank-eval reports per dataset, per domain, the macro-average over
+# domains and a significance table against `seeds` (cluster bootstrap over conversations and seeds, Holm).
+# idf_scope: view because the enterprise sets carry access-control metadata (exact non-interference);
+# on data without it the scores are identical to `global`.
+base: ../hypergraph_base.yaml
+memory: {idf_scope: view}
+k: [5, 10]
+datasets:
+  # team
+  - {label: StateBench v1 test, domain: team, name: jarvis, path: data/stress/statebench_test.json}
+  - {label: SB2 team test, domain: team, name: jarvis, path: data/stress/statebench_v2_team_test.json}
+  # assistant
+  - {label: SB2 assistant test, domain: assistant, name: jarvis, path: data/stress/statebench_v2_assistant_test.json}
+  - {label: SB2 assistant test + LongMemEval background, domain: assistant, name: jarvis,
+     path: data/stress/statebench_v2_assistant_test_bglongmemeval.json}
+  - {label: LongMemEval-S test (stratified 20%), domain: assistant, name: longmemeval, variant: s_cleaned, split: test}
+  # personal
+  - {label: SB2 personal test, domain: personal, name: jarvis, path: data/stress/statebench_v2_personal_test.json}
+  - {label: SB2 personal test + LoCoMo background, domain: personal, name: jarvis,
+     path: data/stress/statebench_v2_personal_test_bglocomo.json}
+  - {label: LoCoMo, domain: personal, name: locomo, categories: [single_hop, multi_hop, temporal, open_domain]}
+  # enterprise
+  - {label: SB2 enterprise test, domain: enterprise, name: jarvis, path: data/stress/statebench_v2_enterprise_test.json}

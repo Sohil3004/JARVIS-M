@@ -1,0 +1,37 @@
+{
+ "evidence_items": [
+  {
+   "question": "What did I say my manager's favourite restaurant is?",
+   "answer": "You never mentioned it.",
+   "message_evidences": [
+    {
+     "speaker": "User",
+     "text": "My manager loves team lunches."
+    }
+   ],
+   "conversations": [
+    {
+     "messages": [
+      {
+       "speaker": "User",
+       "text": "My manager loves team lunches."
+      },
+      {
+       "speaker": "Assistant",
+       "text": "Sounds like a good team."
+      }
+     ],
+     "id": "c-3",
+     "containsEvidence": "True",
+     "model_name": "fixture"
+    }
+   ],
+   "category": "Personal Life",
+   "scenario_description": "fixture",
+   "personId": "00000000-fixture",
+   "use_case_model_name": "fixture",
+   "core_model_name": "fixture"
+  }
+ ],
+ "checkpoint": "fixture"
+}
